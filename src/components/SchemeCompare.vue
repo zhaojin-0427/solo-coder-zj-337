@@ -40,6 +40,11 @@ const stepsB = computed<CeremonyStep[]>(() => templateB.value?.steps || [])
 const elementsA = computed<CanvasElement[]>(() => schemeA.value?.elements || [])
 const elementsB = computed<CanvasElement[]>(() => schemeB.value?.elements || [])
 
+const rolesA = computed(() => schemeA.value?.roles || [])
+const rolesB = computed(() => schemeB.value?.roles || [])
+const stepCommandsA = computed(() => schemeA.value?.stepCommands || [])
+const stepCommandsB = computed(() => schemeB.value?.stepCommands || [])
+
 const elementDiffsA = computed(() => props.compareResult?.elementDiffsA || [])
 const elementDiffsB = computed(() => props.compareResult?.elementDiffsB || [])
 
@@ -54,9 +59,17 @@ const summary = computed(() => {
   const stepAddedA = props.compareResult.stepDiffsA.filter(d => d.diffType === 'added').length
   const stepRemovedA = props.compareResult.stepDiffsA.filter(d => d.diffType === 'removed').length
   const stepChangedA = props.compareResult.stepDiffsA.filter(d => d.diffType === 'moved').length
+  const roleDiff = (rolesA.value.length !== rolesB.value.length) ? true : 
+    rolesA.value.some((r, i) => {
+      const rb = rolesB.value[i]
+      return !rb || r.name !== rb.name || r.color !== rb.color || r.description !== rb.description
+    })
+  const cmdDiff = stepCommandsA.value.length !== stepCommandsB.value.length
   return {
     elements: { added: addedA, removed: removedA, moved: movedA },
     steps: { added: stepAddedA, removed: stepRemovedA, changed: stepChangedA },
+    roleDiff,
+    cmdDiff,
   }
 })
 </script>
@@ -131,6 +144,28 @@ const summary = computed(() => {
           </span>
         </span>
       </div>
+      <div class="summary-item">
+        <span class="summary-label">排练角色</span>
+        <span class="summary-tags">
+          <span v-if="summary.roleDiff" class="summary-tag moved">
+            方案A {{ rolesA.length }}人 / 方案B {{ rolesB.length }}人
+          </span>
+          <span v-else class="summary-tag unchanged">
+            无差异（{{ rolesA.length }}人）
+          </span>
+        </span>
+      </div>
+      <div class="summary-item">
+        <span class="summary-label">口令编排</span>
+        <span class="summary-tags">
+          <span v-if="summary.cmdDiff" class="summary-tag moved">
+            方案A {{ stepCommandsA.length }}条 / 方案B {{ stepCommandsB.length }}条
+          </span>
+          <span v-else class="summary-tag unchanged">
+            无差异（{{ stepCommandsA.length }}条）
+          </span>
+        </span>
+      </div>
     </div>
 
     <div class="compare-body">
@@ -152,6 +187,8 @@ const summary = computed(() => {
               :current-step="null"
               :compare-mode="true"
               :element-diffs="elementDiffsA"
+              :highlighted-role-id="null"
+              :roles="rolesA"
             />
           </template>
           <template v-else>
@@ -161,6 +198,8 @@ const summary = computed(() => {
               :elements="elementsA"
               :compare-mode="true"
               :step-diffs="stepDiffsA"
+              :step-commands="stepCommandsA"
+              :roles="rolesA"
             />
           </template>
         </div>
@@ -188,6 +227,8 @@ const summary = computed(() => {
               :current-step="null"
               :compare-mode="true"
               :element-diffs="elementDiffsB"
+              :highlighted-role-id="null"
+              :roles="rolesB"
             />
           </template>
           <template v-else>
@@ -197,6 +238,8 @@ const summary = computed(() => {
               :elements="elementsB"
               :compare-mode="true"
               :step-diffs="stepDiffsB"
+              :step-commands="stepCommandsB"
+              :roles="rolesB"
             />
           </template>
         </div>

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { ArrowUp, ArrowDown, Play, Pause, RotateCcw } from 'lucide-vue-next'
-import type { CeremonyStep, CanvasElement } from '@/types'
+import { ArrowUp, ArrowDown, Play, Pause, RotateCcw, Users, Clock } from 'lucide-vue-next'
+import type { CeremonyStep, CanvasElement, StepCommand, RehearsalRole } from '@/types'
 import { computed } from 'vue'
 
 const props = defineProps<{
@@ -8,6 +8,8 @@ const props = defineProps<{
   currentStepIndex: number
   isPlaying: boolean
   elements: CanvasElement[]
+  stepCommands: StepCommand[]
+  roles: RehearsalRole[]
 }>()
 
 const emit = defineEmits<{
@@ -29,11 +31,36 @@ function getElementLabel(id: string): string {
   return el?.label || id
 }
 
+function getRoleName(roleId: string): string {
+  return props.roles.find(r => r.id === roleId)?.name || '未指派'
+}
+
+function getRoleColor(roleId: string): string {
+  return props.roles.find(r => r.id === roleId)?.color || '#999'
+}
+
+function getCommandsByStepId(stepId: string): StepCommand[] {
+  return props.stepCommands.filter(c => c.stepId === stepId)
+}
+
+function formatBeat(cmd: StepCommand): string {
+  switch (cmd.beatType) {
+    case 'instant': return '立即'
+    case 'countdown': return cmd.beatCountdown ? `${cmd.beatCountdown}拍后` : '倒计时'
+    case 'signal': return cmd.beatValue || '听信号'
+    case 'previous-finish': return '前序完成'
+    case 'manual': return '手动'
+    default: return ''
+  }
+}
+
 const deliveryItemLabel = computed(() => {
   const step = props.steps[props.currentStepIndex]
   if (!step?.deliveryRoute) return ''
   return getElementLabel(step.deliveryRoute.item)
 })
+
+const totalCommandCount = computed(() => props.stepCommands.length)
 </script>
 
 <template>
@@ -41,7 +68,7 @@ const deliveryItemLabel = computed(() => {
     <div class="steps-header">
       <h3 class="steps-title">礼序步骤</h3>
       <div class="step-counter">
-        {{ currentStepIndex + 1 }} / {{ steps.length }}
+        {{ currentStepIndex + 1 }} / {{ steps.length }} · 口令 {{ totalCommandCount }}
       </div>
     </div>
     
@@ -111,6 +138,47 @@ const deliveryItemLabel = computed(() => {
                 <span class="route-item">{{ getElementLabel(step.deliveryRoute.item) }}</span>
                 <span class="route-arrow">→</span>
                 <span class="route-to">{{ getElementLabel(step.deliveryRoute.to) }}</span>
+              </div>
+            </div>
+            <div v-if="getCommandsByStepId(step.id).length > 0" class="step-commands">
+              <div class="commands-header">
+                <span class="commands-title">口令清单</span>
+                <span class="commands-count">{{ getCommandsByStepId(step.id).length }} 条</span>
+              </div>
+              <div class="commands-list">
+                <div
+                  v-for="cmd in getCommandsByStepId(step.id)"
+                  :key="cmd.id"
+                  class="command-card"
+                >
+                  <div class="cmd-top">
+                    <div
+                      v-if="cmd.executorRoleId"
+                      class="cmd-role"
+                      :style="{ borderColor: getRoleColor(cmd.executorRoleId), color: getRoleColor(cmd.executorRoleId) }"
+                    >
+                      <Users class="w-3 h-3" />
+                      {{ getRoleName(cmd.executorRoleId) }}
+                    </div>
+                    <div v-else class="cmd-role unassigned">
+                      <span>未指派</span>
+                    </div>
+                    <div class="cmd-beat">
+                      <Clock class="w-3 h-3" />
+                      {{ formatBeat(cmd) }}
+                    </div>
+                  </div>
+                  <div class="cmd-text">「{{ cmd.commandText }}」</div>
+                  <div v-if="cmd.waitConditions.length > 0" class="cmd-waits">
+                    <span
+                      v-for="(wc, wi) in cmd.waitConditions"
+                      :key="wi"
+                      class="wait-chip"
+                    >
+                      等待：{{ wc.description || (wc.type === 'previous-finish' ? '前序完成' : (wc.type === 'countdown' ? (wc.value ? wc.value + '拍' : '等待') : (wc.value || wc.type))) }}
+                    </span>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -377,5 +445,103 @@ const deliveryItemLabel = computed(() => {
   border-radius: 4px;
   font-size: 11px;
   color: #8B6914;
+}
+
+.step-commands {
+  margin-top: 10px;
+  background: rgba(95, 158, 160, 0.04);
+  border: 1px solid rgba(95, 158, 160, 0.15);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+.commands-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+
+.commands-title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #5F9EA0;
+}
+
+.commands-count {
+  font-size: 10px;
+  color: #999;
+  background: rgba(95, 158, 160, 0.1);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.commands-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.command-card {
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 8px;
+  border: 1px solid rgba(95, 158, 160, 0.12);
+}
+
+.cmd-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.cmd-role {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-left: 2px solid;
+  background: rgba(255, 255, 255, 0.8);
+}
+
+.cmd-role.unassigned {
+  color: #999;
+  border-left-color: #ccc;
+}
+
+.cmd-beat {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  color: #888;
+  background: rgba(139, 69, 19, 0.05);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.cmd-text {
+  font-size: 11px;
+  color: #333;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.cmd-waits {
+  margin-top: 4px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.wait-chip {
+  font-size: 9px;
+  color: #8B6914;
+  background: rgba(212, 175, 55, 0.1);
+  padding: 1px 6px;
+  border-radius: 8px;
 }
 </style>

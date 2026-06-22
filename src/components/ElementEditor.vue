@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
-import { Trash2, RotateCw, Move, Layers } from 'lucide-vue-next'
-import type { CanvasElement } from '@/types'
+import { Trash2, RotateCw, Move, Layers, Users } from 'lucide-vue-next'
+import type { CanvasElement, RehearsalRole } from '@/types'
 import { materialItems } from '@/data/templates'
 
 const props = defineProps<{
   element: CanvasElement | null
+  roles: RehearsalRole[]
 }>()
 
 const emit = defineEmits<{
   (e: 'update', id: string, updates: Partial<CanvasElement>): void
   (e: 'delete', id: string): void
   (e: 'bring-to-front', id: string): void
+  (e: 'bind-to-role', elementId: string, roleId: string): void
 }>()
 
 const localLabel = ref('')
@@ -19,6 +21,11 @@ const localLabel = ref('')
 const elementTypeInfo = computed(() => {
   if (!props.element) return null
   return materialItems.find(m => m.type === props.element?.type)
+})
+
+const boundRole = computed(() => {
+  if (!props.element?.roleId) return null
+  return props.roles.find(r => r.id === props.element?.roleId) || null
 })
 
 watch(
@@ -40,6 +47,12 @@ function handleLabelChange() {
 function handleRotation(deg: number) {
   if (props.element) {
     emit('update', props.element.id, { rotation: props.element.rotation + deg })
+  }
+}
+
+function handleRoleChange(roleId: string) {
+  if (props.element) {
+    emit('bind-to-role', props.element.id, roleId)
   }
 }
 </script>
@@ -114,6 +127,31 @@ function handleRotation(deg: number) {
               @change="(e) => emit('update', element.id, { height: Number((e.target as HTMLInputElement).value) })"
             />
           </div>
+        </div>
+      </div>
+      
+      <div class="editor-section">
+        <div class="section-title">排练角色</div>
+        <div class="role-binding-section">
+          <div class="role-display" v-if="boundRole">
+            <div class="role-color-dot" :style="{ backgroundColor: boundRole.color }"></div>
+            <span class="role-name-text" :style="{ color: boundRole.color }">{{ boundRole.name }}</span>
+          </div>
+          <div class="role-display unassigned" v-else>
+            <Users class="w-3 h-3" />
+            <span>未绑定角色</span>
+          </div>
+          <label class="form-row" style="margin-top: 6px">
+            <span class="form-label">绑定角色</span>
+            <select
+              class="form-input role-select"
+              :value="element.roleId || ''"
+              @change="(e) => handleRoleChange((e.target as HTMLSelectElement).value)"
+            >
+              <option value="">不绑定</option>
+              <option v-for="r in roles" :key="r.id" :value="r.id">{{ r.order }}. {{ r.name }}</option>
+            </select>
+          </label>
         </div>
       </div>
       
@@ -294,5 +332,41 @@ function handleRotation(deg: number) {
   color: #aaa;
   background: #faf7f0;
   border-top: 1px solid rgba(139, 69, 19, 0.06);
+}
+
+.role-binding-section {
+  margin-top: 4px;
+}
+
+.role-display {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(139, 69, 19, 0.04);
+  border-radius: 6px;
+  border: 1px solid rgba(139, 69, 19, 0.08);
+}
+
+.role-display.unassigned {
+  color: #999;
+  font-size: 11px;
+}
+
+.role-color-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.role-name-text {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.role-select {
+  cursor: pointer;
 }
 </style>

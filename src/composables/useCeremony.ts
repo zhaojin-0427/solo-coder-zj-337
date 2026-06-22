@@ -12,8 +12,11 @@ import type {
   CompareViewMode,
   PrintSettings,
   DiffType,
+  RehearsalRole,
+  StepCommand,
+  BeatCondition,
 } from '@/types'
-import { ceremonyTemplates, getTemplateByScene, createDefaultElements } from '@/data/templates'
+import { ceremonyTemplates, getTemplateByScene, createDefaultElements, createDefaultRoles, createDefaultStepCommands } from '@/data/templates'
 import { generateId } from '@/utils/id'
 import {
   loadSchemes,
@@ -25,6 +28,7 @@ import {
   getSnapshotById,
   deleteSnapshot as removeSnapshot,
 } from '@/utils/storage'
+import { DEFAULT_ROLE_COLORS } from '@/types'
 
 const currentScene = ref<CeremonyScene>('welcome')
 const viewMode = ref<ViewMode>('top')
@@ -35,6 +39,10 @@ const schemeName = ref('未命名方案')
 const isPlaying = ref(false)
 let playInterval: number | null = null
 const PLAY_DURATION = 3000
+
+const roles = ref<RehearsalRole[]>([])
+const stepCommands = ref<StepCommand[]>([])
+const highlightedRoleId = ref<string | null>(null)
 
 const currentSchemeId = ref<string | null>(null)
 
@@ -47,6 +55,8 @@ const printSettings = ref<PrintSettings>({
   fontSize: 'standard',
   showDirection: true,
   showDeliveryRoute: true,
+  showRoleCommands: true,
+  showRoleAssignment: true,
 })
 
 export function useCeremony() {
@@ -70,6 +80,35 @@ export function useCeremony() {
   })
 
   const isCompareMode = computed(() => viewMode.value === 'compare')
+
+  const currentStepCommands = computed(() => {
+    if (!currentStep.value) return []
+    return stepCommands.value.filter(cmd => cmd.stepId === currentStep.value!.id)
+  })
+
+  const sortedRoles = computed(() => {
+    return [...roles.value].sort((a, b) => a.order - b.order)
+  })
+
+  function getRoleById(roleId: string): RehearsalRole | undefined {
+    return roles.value.find(r => r.id === roleId)
+  }
+
+  function getRoleName(roleId: string): string {
+    return getRoleById(roleId)?.name || '未指定'
+  }
+
+  function getRoleColor(roleId: string): string {
+    return getRoleById(roleId)?.color || '#888'
+  }
+
+  function getCommandsByStepId(stepId: string): StepCommand[] {
+    return stepCommands.value.filter(cmd => cmd.stepId === stepId)
+  }
+
+  function getElementsByRoleId(roleId: string): CanvasElement[] {
+    return elements.value.filter(el => el.roleId === roleId)
+  }
 
   function startPlay() {
     if (playInterval) {
@@ -114,8 +153,11 @@ export function useCeremony() {
     stopPlay()
     currentScene.value = scene
     elements.value = createDefaultElements(scene)
+    roles.value = createDefaultRoles(scene)
+    stepCommands.value = createDefaultStepCommands(scene)
     currentStepIndex.value = 0
     selectedElementId.value = null
+    highlightedRoleId.value = null
     schemeName.value = `${currentTemplate.value?.name || '方案'} - ${new Date().toLocaleDateString()}`
     currentSchemeId.value = null
   }
@@ -151,6 +193,7 @@ export function useCeremony() {
       rotation: 0,
       label: defaultEl?.label || type,
       role: defaultEl?.role,
+      roleId: defaultEl?.roleId,
       zIndex: elements.value.length + 1,
     }
     elements.value.push(newElement)
@@ -206,6 +249,144 @@ export function useCeremony() {
     return involvedElementIds.value.includes(id)
   }
 
+  function setHighlightedRole(roleId: string | null) {
+    highlightedRoleId.value = roleId
+  }
+
+  function isElementHighlighted(elementId: string): boolean {
+    if (!highlightedRoleId.value) return true
+    const el = elements.value.find(e => e.id === elementId)
+    return el?.roleId === highlightedRoleId.value
+  }
+
+  function addRole(name: string, description?: string): RehearsalRole {
+    const colorIndex = roles.value.length % DEFAULT_ROLE_COLORS.length
+    const newRole: RehearsalRole = {
+      id: generateId('role'),
+      name,
+      description,
+      color: DEFAULT_ROLE_COLORS[colorIndex],
+      order: roles.value.length + 1,
+    }
+    roles.value.push(newRole)
+    return newRole
+  }
+
+  function updateRole(roleId: string, updates: Partial<RehearsalRole>) {
+    const index = roles.value.findIndex(r => r.id === roleId)
+    if (index !== -1) {
+      roles.value[index] = { ...roles.value[index], ...updates }
+    }
+  }
+
+  function deleteRole(roleId: string) {
+    const index = roles.value.findIndex(r => r.id === roleId)
+    if (index !== -1) {
+      roles.value.splice(index, 1)
+      roles.value.forEach((r, i) => { r.order = i + 1 })
+      elements.value.forEach(el => {
+        if (el.roleId === roleId) {
+          el.roleId = undefined
+          el.role = undefined
+        }
+      })
+      stepCommands.value.forEach(cmd => {
+        if (cmd.executorRoleId === roleId) {
+          cmd.executorRoleId = ''
+        }
+        cmd.waitConditions.forEach(wc => {
+          if (wc.waitRoleIds) {
+            wc.waitRoleIds = wc.waitRoleIds.filter(id => id !== roleId)
+          }
+        })
+      })
+      if (highlightedRoleId.value === roleId) {
+        highlightedRoleId.value = null
+      }
+    }
+  }
+
+  function reorderRole(roleId: string, newOrder: number) {
+    const role = roles.value.find(r => r.id === roleId)
+    if (!role) return
+    const oldOrder = role.order
+    if (oldOrder === newOrder) return
+    roles.value.forEach(r => {
+      if (oldOrder < newOrder) {
+        if (r.order > oldOrder && r.order <= newOrder) {
+          r.order--
+        }
+      } else {
+        if (r.order >= newOrder && r.order < oldOrder) {
+          r.order++
+        }
+      }
+    })
+    role.order = newOrder
+  }
+
+  function bindElementToRole(elementId: string, roleId: string | null) {
+    const el = elements.value.find(e => e.id === elementId)
+    if (el) {
+      if (roleId) {
+        const role = getRoleById(roleId)
+        el.roleId = roleId
+        el.role = role?.name
+      } else {
+        el.roleId = undefined
+        el.role = undefined
+      }
+    }
+  }
+
+  function addStepCommand(stepId: string, commandText: string, executorRoleId: string = '', beatType: StepCommand['beatType'] = 'instant'): StepCommand {
+    const newCommand: StepCommand = {
+      id: generateId('cmd'),
+      stepId,
+      commandText,
+      executorRoleId,
+      beatType,
+      waitConditions: [],
+    }
+    stepCommands.value.push(newCommand)
+    return newCommand
+  }
+
+  function updateStepCommand(commandId: string, updates: Partial<StepCommand>) {
+    const index = stepCommands.value.findIndex(c => c.id === commandId)
+    if (index !== -1) {
+      stepCommands.value[index] = { ...stepCommands.value[index], ...updates }
+    }
+  }
+
+  function deleteStepCommand(commandId: string) {
+    const index = stepCommands.value.findIndex(c => c.id === commandId)
+    if (index !== -1) {
+      stepCommands.value.splice(index, 1)
+    }
+  }
+
+  function addWaitCondition(commandId: string, condition: BeatCondition) {
+    const cmd = stepCommands.value.find(c => c.id === commandId)
+    if (cmd) {
+      cmd.waitConditions.push(condition)
+    }
+  }
+
+  function updateWaitCondition(commandId: string, conditionIndex: number, updates: Partial<BeatCondition>) {
+    const cmd = stepCommands.value.find(c => c.id === commandId)
+    if (cmd && cmd.waitConditions[conditionIndex]) {
+      cmd.waitConditions[conditionIndex] = { ...cmd.waitConditions[conditionIndex], ...updates }
+    }
+  }
+
+  function deleteWaitCondition(commandId: string, conditionIndex: number) {
+    const cmd = stepCommands.value.find(c => c.id === commandId)
+    if (cmd && cmd.waitConditions[conditionIndex]) {
+      cmd.waitConditions.splice(conditionIndex, 1)
+    }
+  }
+
   function createSnapshot(schemeId: string): SchemeSnapshot {
     const snapshot: SchemeSnapshot = {
       id: generateId('snap'),
@@ -215,6 +396,8 @@ export function useCeremony() {
       name: schemeName.value,
       elements: JSON.parse(JSON.stringify(elements.value)),
       currentStepIndex: currentStepIndex.value,
+      roles: JSON.parse(JSON.stringify(roles.value)),
+      stepCommands: JSON.parse(JSON.stringify(stepCommands.value)),
     }
     return snapshot
   }
@@ -232,6 +415,8 @@ export function useCeremony() {
         updatedAt: now,
         elements: JSON.parse(JSON.stringify(elements.value)),
         currentStepIndex: currentStepIndex.value,
+        roles: JSON.parse(JSON.stringify(roles.value)),
+        stepCommands: JSON.parse(JSON.stringify(stepCommands.value)),
       }
       const allSchemes = loadSchemes()
       const existingIndex = allSchemes.findIndex(s => s.id === scheme.id)
@@ -251,6 +436,8 @@ export function useCeremony() {
         updatedAt: now,
         elements: JSON.parse(JSON.stringify(elements.value)),
         currentStepIndex: currentStepIndex.value,
+        roles: JSON.parse(JSON.stringify(roles.value)),
+        stepCommands: JSON.parse(JSON.stringify(stepCommands.value)),
       }
       currentSchemeId.value = scheme.id
       addScheme(scheme)
@@ -265,21 +452,27 @@ export function useCeremony() {
   function loadScheme(scheme: CeremonyScheme) {
     stopPlay()
     currentScene.value = scheme.scene
-    elements.value = JSON.parse(JSON.stringify(scheme.elements))
-    currentStepIndex.value = scheme.currentStepIndex
+    elements.value = JSON.parse(JSON.stringify(scheme.elements || []))
+    roles.value = JSON.parse(JSON.stringify(scheme.roles || createDefaultRoles(scheme.scene)))
+    stepCommands.value = JSON.parse(JSON.stringify(scheme.stepCommands || createDefaultStepCommands(scheme.scene)))
+    currentStepIndex.value = scheme.currentStepIndex || 0
     schemeName.value = scheme.name
     currentSchemeId.value = scheme.id
     selectedElementId.value = null
+    highlightedRoleId.value = null
   }
 
   function loadSnapshot(snapshot: SchemeSnapshot) {
     stopPlay()
     setScene(snapshot.scene)
-    elements.value = JSON.parse(JSON.stringify(snapshot.elements))
+    elements.value = JSON.parse(JSON.stringify(snapshot.elements || []))
+    roles.value = JSON.parse(JSON.stringify(snapshot.roles || []))
+    stepCommands.value = JSON.parse(JSON.stringify(snapshot.stepCommands || []))
     currentStepIndex.value = snapshot.currentStepIndex
     schemeName.value = `${snapshot.name} (快照恢复)`
     currentSchemeId.value = snapshot.schemeId
     selectedElementId.value = null
+    highlightedRoleId.value = null
   }
 
   function deleteSavedScheme(schemeId: string) {
@@ -337,7 +530,8 @@ export function useCeremony() {
         const hasSizeChanged = elA.width !== elB.width || elA.height !== elB.height
         const hasRotationChanged = elA.rotation !== elB.rotation
         const hasLabelChanged = elA.label !== elB.label
-        const isChanged = hasMoved || hasSizeChanged || hasRotationChanged || hasLabelChanged
+        const hasRoleChanged = elA.roleId !== elB.roleId
+        const isChanged = hasMoved || hasSizeChanged || hasRotationChanged || hasLabelChanged || hasRoleChanged
 
         const diffTypeA: DiffType = isChanged ? 'moved' : 'unchanged'
         const diffTypeB: DiffType = isChanged ? 'moved' : 'unchanged'
@@ -488,6 +682,9 @@ export function useCeremony() {
     currentStepIndex,
     schemeName,
     isPlaying,
+    roles,
+    stepCommands,
+    highlightedRoleId,
     currentTemplate,
     steps,
     currentStep,
@@ -500,6 +697,8 @@ export function useCeremony() {
     compareSchemeB,
     compareResult,
     printSettings,
+    currentStepCommands,
+    sortedRoles,
     setScene,
     setViewMode,
     setCompareViewMode,
@@ -528,5 +727,23 @@ export function useCeremony() {
     startCompare,
     updatePrintSettings,
     initDefault,
+    getRoleById,
+    getRoleName,
+    getRoleColor,
+    getCommandsByStepId,
+    getElementsByRoleId,
+    setHighlightedRole,
+    isElementHighlighted,
+    addRole,
+    updateRole,
+    deleteRole,
+    reorderRole,
+    bindElementToRole,
+    addStepCommand,
+    updateStepCommand,
+    deleteStepCommand,
+    addWaitCondition,
+    updateWaitCondition,
+    deleteWaitCondition,
   }
 }

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowRight, User, Droplets, Coffee, Crown, Flame } from 'lucide-vue-next'
-import type { CeremonyStep, CanvasElement, StepDiff } from '@/types'
+import { ArrowRight, User, Droplets, Coffee, Crown, Flame, Users, Clock, MessageSquare } from 'lucide-vue-next'
+import type { CeremonyStep, CanvasElement, StepDiff, StepCommand, RehearsalRole } from '@/types'
 
 const props = defineProps<{
   steps: CeremonyStep[]
@@ -10,6 +10,8 @@ const props = defineProps<{
   compareMode?: boolean
   stepDiffs?: StepDiff[]
   showDeliveryRoute?: boolean
+  stepCommands: StepCommand[]
+  roles: RehearsalRole[]
 }>()
 
 const emit = defineEmits<{
@@ -80,6 +82,36 @@ function getStepChangedFields(stepId: string): string[] {
   return diff?.changedFields || []
 }
 
+function getCommandsByStepId(stepId: string): StepCommand[] {
+  return props.stepCommands.filter(c => c.stepId === stepId)
+}
+
+function getRoleName(roleId: string): string {
+  return props.roles.find(r => r.id === roleId)?.name || ''
+}
+
+function getRoleColor(roleId: string): string {
+  return props.roles.find(r => r.id === roleId)?.color || '#888'
+}
+
+function getStepExecutors(stepId: string): string[] {
+  const cmds = getCommandsByStepId(stepId)
+  const executorIds = new Set<string>()
+  cmds.forEach(c => { if (c.executorRoleId) executorIds.add(c.executorRoleId) })
+  return Array.from(executorIds)
+}
+
+function formatBeat(cmd: StepCommand): string {
+  switch (cmd.beatType) {
+    case 'instant': return '立即'
+    case 'countdown': return cmd.beatCountdown ? `${cmd.beatCountdown}拍后` : '倒计时'
+    case 'signal': return cmd.beatValue || '听信号'
+    case 'previous-finish': return '前序完成'
+    case 'manual': return '手动'
+    default: return ''
+  }
+}
+
 const fieldLabelMap: Record<string, string> = {
   title: '名称',
   description: '描述',
@@ -87,6 +119,8 @@ const fieldLabelMap: Record<string, string> = {
   gesture: '礼仪',
   duration: '时长',
   order: '顺序',
+  roles: '角色',
+  commands: '口令',
 }
 </script>
 
@@ -137,6 +171,19 @@ const fieldLabelMap: Record<string, string> = {
           </div>
           <div class="node-title">{{ step.title }}</div>
           <div class="node-gesture">{{ step.gesture }}</div>
+          <div v-if="!compareMode && getStepExecutors(step.id).length > 0" class="node-executors">
+            <Users class="w-2.5 h-2.5" />
+            <div class="executor-dots">
+              <span
+                v-for="eid in getStepExecutors(step.id)"
+                :key="eid"
+                class="executor-dot"
+                :style="{ backgroundColor: getRoleColor(eid) }"
+                :title="getRoleName(eid)"
+              />
+            </div>
+            <span class="cmd-count">{{ getCommandsByStepId(step.id).length }}</span>
+          </div>
           <div v-if="compareMode && getStepDiffType(step.id) && getStepDiffType(step.id) !== 'unchanged'" class="diff-badge" :class="'diff-' + getStepDiffType(step.id)">
             {{ getStepDiffLabel(step.id) }}
           </div>
@@ -164,6 +211,46 @@ const fieldLabelMap: Record<string, string> = {
         <span class="route-item">{{ getElementLabel(currentStep.deliveryRoute.item) }}</span>
         <span class="route-arrow">→</span>
         <span>{{ getElementLabel(currentStep.deliveryRoute.to) }}</span>
+      </div>
+      <div v-if="getCommandsByStepId(currentStep.id).length > 0" class="detail-commands">
+        <div class="dc-title">
+          <MessageSquare class="w-4 h-4" />
+          <span>本步口令（{{ getCommandsByStepId(currentStep.id).length }} 条）</span>
+        </div>
+        <div class="dc-table">
+          <div
+            v-for="(cmd, ci) in getCommandsByStepId(currentStep.id)"
+            :key="cmd.id"
+            class="dc-row"
+          >
+            <div class="dc-idx">{{ ci + 1 }}</div>
+            <div class="dc-main">
+              <div class="dc-text">「{{ cmd.commandText }}」</div>
+              <div class="dc-tags">
+                <span
+                  v-if="cmd.executorRoleId"
+                  class="dc-tag role"
+                  :style="{ borderColor: getRoleColor(cmd.executorRoleId), color: getRoleColor(cmd.executorRoleId) }"
+                >
+                  <Users class="w-3 h-3" />
+                  {{ getRoleName(cmd.executorRoleId) }}
+                </span>
+                <span v-else class="dc-tag unassigned">未指派执行人</span>
+                <span class="dc-tag beat">
+                  <Clock class="w-3 h-3" />
+                  {{ formatBeat(cmd) }}
+                </span>
+                <span
+                  v-for="(wc, wi) in cmd.waitConditions"
+                  :key="wi"
+                  class="dc-tag wait"
+                >
+                  等待：{{ wc.description || (wc.type === 'previous-finish' ? '前序完成' : (wc.value || wc.type)) }}
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
@@ -463,5 +550,140 @@ const fieldLabelMap: Record<string, string> = {
 .ghost-number {
   background: rgba(231, 76, 60, 0.4) !important;
   color: white !important;
+}
+
+.node-executors {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  margin-top: 8px;
+  padding: 4px 6px;
+  background: rgba(139, 69, 19, 0.04);
+  border-radius: 6px;
+  color: #888;
+  font-size: 10px;
+}
+
+.executor-dots {
+  display: flex;
+  gap: 3px;
+}
+
+.executor-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.cmd-count {
+  font-weight: 600;
+  background: rgba(95, 158, 160, 0.15);
+  color: #5F9EA0;
+  padding: 0 5px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.detail-commands {
+  margin-top: 14px;
+  background: rgba(95, 158, 160, 0.04);
+  border: 1px solid rgba(95, 158, 160, 0.15);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.dc-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #5F9EA0;
+}
+
+.dc-table {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.dc-row {
+  display: flex;
+  gap: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid rgba(95, 158, 160, 0.1);
+}
+
+.dc-idx {
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  background: #5F9EA0;
+  color: #fff;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.dc-main {
+  flex: 1;
+  min-width: 0;
+}
+
+.dc-text {
+  font-size: 13px;
+  color: #2C2C2C;
+  font-weight: 500;
+  line-height: 1.5;
+  margin-bottom: 5px;
+}
+
+.dc-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.dc-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid;
+}
+
+.dc-tag.role {
+  background: rgba(255, 255, 255, 0.9);
+  font-weight: 500;
+  border-left-width: 3px;
+}
+
+.dc-tag.unassigned {
+  background: #f5f5f5;
+  color: #999;
+  border-color: #ddd;
+}
+
+.dc-tag.beat {
+  background: rgba(139, 69, 19, 0.08);
+  border-color: rgba(139, 69, 19, 0.15);
+  color: #8B4513;
+}
+
+.dc-tag.wait {
+  background: rgba(212, 175, 55, 0.1);
+  border-color: rgba(212, 175, 55, 0.25);
+  color: #8B6914;
 }
 </style>

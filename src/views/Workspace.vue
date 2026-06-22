@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
-import { Grid, GitBranch, Save, FileDown, Printer, FolderOpen, Info } from 'lucide-vue-next'
+import { Grid, GitBranch, Save, FileDown, Printer, FolderOpen, Info, Users, MessageSquare } from 'lucide-vue-next'
 import SceneSelector from '@/components/SceneSelector.vue'
 import MaterialLibrary from '@/components/MaterialLibrary.vue'
 import SeatingCanvas from '@/components/SeatingCanvas.vue'
@@ -10,9 +10,11 @@ import ElementEditor from '@/components/ElementEditor.vue'
 import SchemeManager from '@/components/SchemeManager.vue'
 import PrintPreview from '@/components/PrintPreview.vue'
 import SchemeCompare from '@/components/SchemeCompare.vue'
+import RoleManager from '@/components/RoleManager.vue'
+import CommandEditor from '@/components/CommandEditor.vue'
 import { useCeremony } from '@/composables/useCeremony'
 import { exportElementAsImage } from '@/utils/export'
-import type { CeremonyScene, CanvasElement, CeremonyScheme, SchemeSnapshot, PrintSettings } from '@/types'
+import type { CeremonyScene, CanvasElement, CeremonyScheme, SchemeSnapshot, PrintSettings, RehearsalRole, StepCommand, BeatType, BeatCondition } from '@/types'
 
 const {
   currentScene,
@@ -31,6 +33,9 @@ const {
   compareViewMode,
   compareResult,
   printSettings,
+  roles,
+  stepCommands,
+  highlightedRoleId,
   setScene,
   setViewMode,
   setCompareViewMode,
@@ -54,6 +59,18 @@ const {
   startCompare,
   updatePrintSettings,
   initDefault,
+  addRole,
+  updateRole,
+  deleteRole,
+  reorderRole,
+  bindElementToRole,
+  addStepCommand,
+  updateStepCommand,
+  deleteStepCommand,
+  addWaitCondition,
+  updateWaitCondition,
+  deleteWaitCondition,
+  setHighlightedRole,
 } = useCeremony()
 
 const seatingCanvasRef = ref<InstanceType<typeof SeatingCanvas> | null>(null)
@@ -62,8 +79,12 @@ const showPrintPreview = ref(false)
 const schemes = ref<CeremonyScheme[]>([])
 const showInfo = ref(false)
 const isExporting = ref(false)
+const leftTab = ref<'materials' | 'roles'>('materials')
+const rightTab = ref<'steps' | 'commands'>('steps')
 
 const elementCount = computed(() => elements.value.length)
+const roleCount = computed(() => roles.value.length)
+const commandCount = computed(() => stepCommands.value.length)
 
 function handleSceneChange(scene: CeremonyScene) {
   setScene(scene)
@@ -154,6 +175,54 @@ function handleUpdatePrintSettings(settings: PrintSettings) {
   updatePrintSettings(settings)
 }
 
+function handleAddRole(name: string, description?: string) {
+  addRole(name, description)
+}
+
+function handleUpdateRole(roleId: string, updates: Partial<RehearsalRole>) {
+  updateRole(roleId, updates)
+}
+
+function handleDeleteRole(roleId: string) {
+  deleteRole(roleId)
+}
+
+function handleReorderRole(roleId: string, newOrder: number) {
+  reorderRole(roleId, newOrder)
+}
+
+function handleHighlightRole(roleId: string | null) {
+  setHighlightedRole(roleId)
+}
+
+function handleBindElementToRole(elementId: string, roleId: string) {
+  bindElementToRole(elementId, roleId)
+}
+
+function handleAddStepCommand(stepId: string, commandText: string, executorRoleId: string, beatType: BeatType) {
+  addStepCommand(stepId, commandText, executorRoleId, beatType)
+}
+
+function handleUpdateStepCommand(commandId: string, updates: Partial<StepCommand>) {
+  updateStepCommand(commandId, updates)
+}
+
+function handleDeleteStepCommand(commandId: string) {
+  deleteStepCommand(commandId)
+}
+
+function handleAddWaitCondition(commandId: string, condition: BeatCondition) {
+  addWaitCondition(commandId, condition)
+}
+
+function handleUpdateWaitCondition(commandId: string, conditionIndex: number, updates: Partial<BeatCondition>) {
+  updateWaitCondition(commandId, conditionIndex, updates)
+}
+
+function handleDeleteWaitCondition(commandId: string, conditionIndex: number) {
+  deleteWaitCondition(commandId, conditionIndex)
+}
+
 onMounted(() => {
   initDefault()
 })
@@ -225,7 +294,39 @@ onMounted(() => {
       </template>
       <template v-else>
         <aside class="left-sidebar">
-          <MaterialLibrary />
+          <div class="sidebar-tabs">
+            <button
+              class="side-tab"
+              :class="{ active: leftTab === 'materials' }"
+              @click="leftTab = 'materials'"
+            >
+              <Grid class="w-4 h-4" />
+              素材库
+            </button>
+            <button
+              class="side-tab"
+              :class="{ active: leftTab === 'roles' }"
+              @click="leftTab = 'roles'"
+            >
+              <Users class="w-4 h-4" />
+              角色
+              <span v-if="roleCount > 0" class="tab-badge">{{ roleCount }}</span>
+            </button>
+          </div>
+          <div class="sidebar-content">
+            <MaterialLibrary v-show="leftTab === 'materials'" />
+            <RoleManager
+              v-show="leftTab === 'roles'"
+              :roles="roles"
+              :elements="elements"
+              :highlighted-role-id="highlightedRoleId"
+              @add-role="handleAddRole"
+              @update-role="handleUpdateRole"
+              @delete-role="handleDeleteRole"
+              @reorder-role="handleReorderRole"
+              @highlight-role="handleHighlightRole"
+            />
+          </div>
         </aside>
         
         <main class="canvas-area">
@@ -235,6 +336,8 @@ onMounted(() => {
               :elements="elements"
               :selected-element-id="selectedElementId"
               :current-step="currentStep"
+              :highlighted-role-id="highlightedRoleId"
+              :roles="roles"
               @select="handleSelectElement"
               @update-element="handleUpdateElement"
               @add-element="handleAddElement"
@@ -247,30 +350,73 @@ onMounted(() => {
               :steps="steps"
               :current-step-index="currentStepIndex"
               :elements="elements"
+              :step-commands="stepCommands"
+              :roles="roles"
               @step-change="handleStepChange"
             />
           </template>
         </main>
         
         <aside class="right-sidebar">
-          <CeremonySteps
-            :steps="steps"
-            :current-step-index="currentStepIndex"
-            :is-playing="isPlaying"
-            :elements="elements"
-            @step-change="handleStepChange"
-            @prev="prevStep"
-            @next="nextStep"
-            @toggle-play="togglePlay"
-            @reset="handleReset"
-          />
-          <ElementEditor
-            v-if="selectedElement && viewMode === 'top'"
-            :element="selectedElement"
-            @update="handleUpdateElement"
-            @delete="handleDeleteElement"
-            @bring-to-front="bringToFront"
-          />
+          <div class="sidebar-tabs">
+            <button
+              class="side-tab"
+              :class="{ active: rightTab === 'steps' }"
+              @click="rightTab = 'steps'"
+            >
+              <GitBranch class="w-4 h-4" />
+              礼序
+            </button>
+            <button
+              class="side-tab"
+              :class="{ active: rightTab === 'commands' }"
+              @click="rightTab = 'commands'"
+            >
+              <MessageSquare class="w-4 h-4" />
+              口令
+              <span v-if="commandCount > 0" class="tab-badge">{{ commandCount }}</span>
+            </button>
+          </div>
+          <div class="sidebar-content">
+            <div v-show="rightTab === 'steps'" class="tab-panel">
+              <CeremonySteps
+                :steps="steps"
+                :current-step-index="currentStepIndex"
+                :is-playing="isPlaying"
+                :elements="elements"
+                :step-commands="stepCommands"
+                :roles="roles"
+                @step-change="handleStepChange"
+                @prev="prevStep"
+                @next="nextStep"
+                @toggle-play="togglePlay"
+                @reset="handleReset"
+              />
+              <ElementEditor
+                v-if="selectedElement && viewMode === 'top'"
+                :element="selectedElement"
+                :roles="roles"
+                @update="handleUpdateElement"
+                @delete="handleDeleteElement"
+                @bring-to-front="bringToFront"
+                @bind-to-role="handleBindElementToRole"
+              />
+            </div>
+            <CommandEditor
+              v-show="rightTab === 'commands'"
+              :steps="steps"
+              :current-step-index="currentStepIndex"
+              :step-commands="stepCommands"
+              :roles="roles"
+              @step-change="handleStepChange"
+              @add-command="handleAddStepCommand"
+              @update-command="handleUpdateStepCommand"
+              @delete-command="handleDeleteStepCommand"
+              @add-wait-condition="handleAddWaitCondition"
+              @update-wait-condition="handleUpdateWaitCondition"
+              @delete-wait-condition="handleDeleteWaitCondition"
+            />
+          </div>
         </aside>
       </template>
     </div>
@@ -281,6 +427,8 @@ onMounted(() => {
       </div>
       <div class="status-right">
         <span class="status-item">元素：{{ elementCount }} 个</span>
+        <span class="status-item">角色：{{ roleCount }} 人</span>
+        <span class="status-item">口令：{{ commandCount }} 条</span>
         <span class="status-item">步骤：{{ steps.length }} 步</span>
         <span class="status-item" @click="showInfo = !showInfo" style="cursor: pointer">
           <Info class="w-3 h-3" />
@@ -292,12 +440,14 @@ onMounted(() => {
     <div v-if="showInfo" class="info-toast">
       <p><strong>操作提示：</strong></p>
       <ul>
-        <li>从左侧素材库拖拽元素到画布</li>
-        <li>点击元素选中，拖拽移动位置</li>
-        <li>方向键微调选中元素位置</li>
-        <li>Delete / Backspace 删除选中元素</li>
-        <li>右侧步骤栏查看礼序流程</li>
+        <li>从左侧「素材库」拖拽元素到画布</li>
+        <li>切换到「角色」Tab 管理排练角色，点眼睛图标高亮区域</li>
+        <li>点击元素选中，拖拽移动位置；属性区可绑定角色</li>
+        <li>方向键微调选中元素位置，Delete 删除选中元素</li>
+        <li>右侧「礼序」Tab 查看步骤与口令信息</li>
+        <li>切换「口令」Tab 编辑每步口令文本、执行人和起拍方式</li>
         <li>顶部切换俯视图/流程图视图</li>
+        <li>「打印」可导出仪程卡、角色分工表和口令表</li>
       </ul>
     </div>
     
@@ -321,6 +471,8 @@ onMounted(() => {
       :scheme-name="schemeName"
       :elements="elements"
       :default-settings="printSettings"
+      :roles="roles"
+      :step-commands="stepCommands"
       @close="showPrintPreview = false"
       @update-settings="handleUpdatePrintSettings"
     />
@@ -480,6 +632,80 @@ onMounted(() => {
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
+}
+
+.sidebar-tabs {
+  display: flex;
+  background: #f0eadd;
+  border-bottom: 1px solid rgba(139, 69, 19, 0.1);
+  padding: 6px;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.left-sidebar .sidebar-tabs {
+  background: #e8dfd0;
+  border-bottom: 1px solid rgba(139, 69, 19, 0.1);
+}
+
+.side-tab {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 7px 8px;
+  background: transparent;
+  border: none;
+  border-radius: 7px;
+  font-size: 12px;
+  color: #8B4513;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  position: relative;
+}
+
+.side-tab:hover {
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.side-tab.active {
+  background: #fff;
+  color: #5F9EA0;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  font-weight: 600;
+}
+
+.tab-badge {
+  background: rgba(95, 158, 160, 0.2);
+  color: #5F9EA0;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 0 6px;
+  border-radius: 10px;
+  line-height: 1.6;
+}
+
+.sidebar-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  background: #fff;
+}
+
+.left-sidebar .sidebar-content {
+  background: #fdfaf4;
+}
+
+.tab-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .status-bar {

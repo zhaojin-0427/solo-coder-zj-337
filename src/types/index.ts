@@ -10,6 +10,36 @@ export type DiffType = 'added' | 'removed' | 'moved' | 'unchanged'
 
 export type PrintFontSize = 'standard' | 'large'
 
+export type BeatType = 'instant' | 'countdown' | 'signal' | 'previous-finish' | 'manual'
+
+export interface BeatCondition {
+  type: BeatType
+  value?: string
+  waitRoleIds?: string[]
+  waitStepIds?: string[]
+  description?: string
+}
+
+export interface RehearsalRole {
+  id: string
+  name: string
+  description?: string
+  color: string
+  order: number
+}
+
+export interface StepCommand {
+  id: string
+  stepId: string
+  commandText: string
+  executorRoleId: string
+  beatType: BeatType
+  beatValue?: string
+  beatCountdown?: number
+  waitConditions: BeatCondition[]
+  notes?: string
+}
+
 export interface SchemeSnapshot {
   id: string
   schemeId: string
@@ -18,6 +48,8 @@ export interface SchemeSnapshot {
   name: string
   elements: CanvasElement[]
   currentStepIndex: number
+  roles: RehearsalRole[]
+  stepCommands: StepCommand[]
 }
 
 export type ElementType =
@@ -48,6 +80,7 @@ export interface CanvasElement {
   rotation: number
   label: string
   role?: string
+  roleId?: string
   zIndex: number
 }
 
@@ -74,6 +107,8 @@ export interface CeremonyTemplate {
   icon: string
   steps: CeremonyStep[]
   defaultElements: CanvasElement[]
+  defaultRoles: RehearsalRole[]
+  defaultStepCommands?: StepCommand[]
 }
 
 export interface CeremonyScheme {
@@ -84,6 +119,8 @@ export interface CeremonyScheme {
   updatedAt: number
   elements: CanvasElement[]
   currentStepIndex: number
+  roles: RehearsalRole[]
+  stepCommands: StepCommand[]
 }
 
 export interface MaterialItem {
@@ -124,14 +161,19 @@ export interface PrintSettings {
   fontSize: PrintFontSize
   showDirection: boolean
   showDeliveryRoute: boolean
+  showRoleCommands: boolean
+  showRoleAssignment: boolean
 }
 
-export interface CeremonyScheme {
-  id: string
-  name: string
-  scene: CeremonyScene
-  createdAt: number
-  updatedAt: number
-  elements: CanvasElement[]
-  currentStepIndex: number
-}
+export const DEFAULT_ROLE_COLORS = [
+  '#8B4513',
+  '#5F9EA0',
+  '#D4AF37',
+  '#CD5C5C',
+  '#6B8E23',
+  '#4682B4',
+  '#9932CC',
+  '#FF8C00',
+  '#20B2AA',
+  '#DB7093',
+]

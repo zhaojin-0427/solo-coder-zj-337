@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { X, Printer, Download, ZoomIn, ZoomOut, Type, Compass, ArrowRight } from 'lucide-vue-next'
-import type { CeremonyStep, CeremonyTemplate, PrintSettings, PrintFontSize, CanvasElement } from '@/types'
+import { X, Printer, Download, ZoomIn, ZoomOut, Type, Compass, ArrowRight, Users, ClipboardList, UserSquare } from 'lucide-vue-next'
+import type { CeremonyStep, CeremonyTemplate, PrintSettings, PrintFontSize, CanvasElement, RehearsalRole, StepCommand } from '@/types'
 
 const props = defineProps<{
   isOpen: boolean
@@ -10,6 +10,8 @@ const props = defineProps<{
   schemeName: string
   elements: CanvasElement[]
   defaultSettings?: PrintSettings
+  roles: RehearsalRole[]
+  stepCommands: StepCommand[]
 }>()
 
 const emit = defineEmits<{
@@ -22,6 +24,8 @@ const zoom = ref(1)
 const fontSize = ref<PrintFontSize>(props.defaultSettings?.fontSize || 'standard')
 const showDirection = ref<boolean>(props.defaultSettings?.showDirection !== false)
 const showDeliveryRoute = ref<boolean>(props.defaultSettings?.showDeliveryRoute !== false)
+const showRoleAssignment = ref<boolean>(props.defaultSettings?.showRoleAssignment !== false)
+const showRoleCommands = ref<boolean>(props.defaultSettings?.showRoleCommands !== false)
 
 const formattedDate = computed(() => {
   const now = new Date()
@@ -29,6 +33,10 @@ const formattedDate = computed(() => {
   const month = String(now.getMonth() + 1).padStart(2, '0')
   const day = String(now.getDate()).padStart(2, '0')
   return `${year}年${month}月${day}日`
+})
+
+const sortedRoles = computed(() => {
+  return [...props.roles].sort((a, b) => a.order - b.order)
 })
 
 function close() {
@@ -62,6 +70,16 @@ function toggleShowDeliveryRoute() {
   emitUpdate()
 }
 
+function toggleShowRoleAssignment() {
+  showRoleAssignment.value = !showRoleAssignment.value
+  emitUpdate()
+}
+
+function toggleShowRoleCommands() {
+  showRoleCommands.value = !showRoleCommands.value
+  emitUpdate()
+}
+
 function getElementLabel(elementId: string): string {
   const element = props.elements.find(el => el.id === elementId)
   if (element) return element.label
@@ -72,11 +90,48 @@ function getElementLabel(elementId: string): string {
   return elementId
 }
 
+function getRoleName(roleId: string): string {
+  return props.roles.find(r => r.id === roleId)?.name || '未指派'
+}
+
+function getRoleColor(roleId: string): string {
+  return props.roles.find(r => r.id === roleId)?.color || '#888'
+}
+
+function getElementsByRoleId(roleId: string): CanvasElement[] {
+  return props.elements.filter(el => el.roleId === roleId)
+}
+
+function getCommandsByRoleId(roleId: string): StepCommand[] {
+  return props.stepCommands.filter(c => c.executorRoleId === roleId)
+}
+
+function getCommandsByStepId(stepId: string): StepCommand[] {
+  return props.stepCommands.filter(c => c.stepId === stepId)
+}
+
+function getStepTitle(stepId: string): string {
+  return props.steps.find(s => s.id === stepId)?.title || stepId
+}
+
+function formatBeat(cmd: StepCommand): string {
+  switch (cmd.beatType) {
+    case 'instant': return '立即'
+    case 'countdown': return cmd.beatCountdown ? `${cmd.beatCountdown}拍后` : '倒计时'
+    case 'signal': return cmd.beatValue || '听信号'
+    case 'previous-finish': return '前序完成'
+    case 'manual': return '手动'
+    default: return ''
+  }
+}
+
 function emitUpdate() {
   emit('update-settings', {
     fontSize: fontSize.value,
     showDirection: showDirection.value,
     showDeliveryRoute: showDeliveryRoute.value,
+    showRoleAssignment: showRoleAssignment.value,
+    showRoleCommands: showRoleCommands.value,
   })
 }
 
@@ -127,6 +182,24 @@ const cardClass = computed(() => ({
             >
               <ArrowRight class="w-4 h-4" />
               <span>递送</span>
+            </button>
+            <button
+              class="toolbar-btn setting-btn"
+              :class="{ active: showRoleAssignment }"
+              title="显示角色分工表"
+              @click="toggleShowRoleAssignment"
+            >
+              <UserSquare class="w-4 h-4" />
+              <span>分工</span>
+            </button>
+            <button
+              class="toolbar-btn setting-btn"
+              :class="{ active: showRoleCommands }"
+              title="显示角色口令表"
+              @click="toggleShowRoleCommands"
+            >
+              <ClipboardList class="w-4 h-4" />
+              <span>口令表</span>
             </button>
           </div>
           <div class="toolbar-divider"></div>
@@ -190,6 +263,106 @@ const cardClass = computed(() => ({
                   <span>{{ getElementLabel(step.deliveryRoute.to) }}</span>
                 </div>
               </div>
+            </div>
+          </div>
+          
+          <div v-if="showRoleAssignment && roles.length > 0" class="card-section role-assignment">
+            <div class="section-header">
+              <UserSquare class="w-5 h-5" />
+              <h3 class="section-title">角色分工总览</h3>
+            </div>
+            <div class="role-assignment-grid">
+              <div
+                v-for="role in sortedRoles"
+                :key="role.id"
+                class="role-block"
+              >
+                <div class="role-block-header" :style="{ borderColor: role.color, backgroundColor: role.color + '12' }">
+                  <div class="rb-color" :style="{ backgroundColor: role.color }"></div>
+                  <div class="rb-name" :style="{ color: role.color }">
+                    <span class="rb-order">{{ role.order }}.</span>
+                    {{ role.name }}
+                  </div>
+                  <span class="rb-stats">{{ getElementsByRoleId(role.id).length }}项·{{ getCommandsByRoleId(role.id).length }}令</span>
+                </div>
+                <div v-if="role.description" class="rb-desc">{{ role.description }}</div>
+                <div class="rb-elements">
+                  <div class="rb-subtitle">负责席位器物</div>
+                  <div v-if="getElementsByRoleId(role.id).length > 0" class="rb-tags">
+                    <span v-for="el in getElementsByRoleId(role.id)" :key="el.id" class="rb-tag element">
+                      {{ el.label }}
+                    </span>
+                  </div>
+                  <div v-else class="rb-empty">暂无绑定</div>
+                </div>
+              </div>
+            </div>
+          </div>
+          
+          <div v-if="showRoleCommands && stepCommands.length > 0" class="card-section role-commands">
+            <div class="section-header">
+              <ClipboardList class="w-5 h-5" />
+              <h3 class="section-title">角色分工口令表</h3>
+            </div>
+            <div class="command-table-wrapper">
+              <table class="command-table">
+                <thead>
+                  <tr>
+                    <th class="col-step">步骤</th>
+                    <th class="col-role">执行人</th>
+                    <th class="col-cmd">口令内容</th>
+                    <th class="col-beat">起拍</th>
+                    <th class="col-wait">等待条件</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template v-for="step in steps" :key="step.id">
+                    <tr
+                      v-for="(cmd, cmdIdx) in getCommandsByStepId(step.id)"
+                      :key="cmd.id"
+                      class="cmd-table-row"
+                    >
+                      <td v-if="cmdIdx === 0" :rowspan="Math.max(getCommandsByStepId(step.id).length, 1)" class="step-cell">
+                        <div class="sc-order">{{ String(step.order).padStart(2, '0') }}</div>
+                        <div class="sc-title">{{ step.title }}</div>
+                      </td>
+                      <td class="role-cell">
+                        <span
+                          v-if="cmd.executorRoleId"
+                          class="role-pill"
+                          :style="{ borderColor: getRoleColor(cmd.executorRoleId), color: getRoleColor(cmd.executorRoleId) }"
+                        >
+                          {{ getRoleName(cmd.executorRoleId) }}
+                        </span>
+                        <span v-else class="role-pill unassigned">未指派</span>
+                      </td>
+                      <td class="cmd-cell">{{ cmd.commandText }}</td>
+                      <td class="beat-cell">
+                        <span class="beat-chip">{{ formatBeat(cmd) }}</span>
+                      </td>
+                      <td class="wait-cell">
+                        <template v-if="cmd.waitConditions.length > 0">
+                          <span
+                            v-for="(wc, wi) in cmd.waitConditions"
+                            :key="wi"
+                            class="wait-chip"
+                          >
+                            {{ wc.description || (wc.type === 'previous-finish' ? '前序完成' : (wc.value || wc.type)) }}
+                          </span>
+                        </template>
+                        <span v-else class="wait-chip none">—</span>
+                      </td>
+                    </tr>
+                    <tr v-if="getCommandsByStepId(step.id).length === 0" :key="step.id + '-empty'">
+                      <td class="step-cell">
+                        <div class="sc-order">{{ String(step.order).padStart(2, '0') }}</div>
+                        <div class="sc-title">{{ step.title }}</div>
+                      </td>
+                      <td colspan="4" class="no-commands">（本步暂无口令）</td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
             </div>
           </div>
           
@@ -577,5 +750,293 @@ const cardClass = computed(() => ({
   justify-content: space-between;
   font-size: 12px;
   color: #aaa;
+}
+
+.card-section {
+  margin-top: 40px;
+  padding-top: 30px;
+  border-top: 1px solid rgba(139, 69, 19, 0.12);
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  color: #5F9EA0;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #5F9EA0;
+  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
+  letter-spacing: 2px;
+}
+
+.role-assignment-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.role-block {
+  background: #fffef9;
+  border: 1px solid rgba(139, 69, 19, 0.1);
+  border-radius: 10px;
+  padding: 12px 14px;
+  transition: all 0.2s;
+}
+
+.role-block-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border-left: 3px solid;
+  margin-bottom: 8px;
+}
+
+.rb-color {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
+}
+
+.rb-name {
+  flex: 1;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.rb-order {
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.rb-stats {
+  font-size: 10px;
+  color: #999;
+  background: rgba(255, 255, 255, 0.8);
+  padding: 1px 8px;
+  border-radius: 10px;
+}
+
+.rb-desc {
+  font-size: 11px;
+  color: #888;
+  margin-bottom: 8px;
+  padding: 0 4px;
+  line-height: 1.5;
+}
+
+.rb-elements {
+  padding: 0 4px;
+}
+
+.rb-subtitle {
+  font-size: 10px;
+  color: #aaa;
+  margin-bottom: 5px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.rb-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.rb-tag {
+  font-size: 10px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(139, 69, 19, 0.06);
+  color: #5c3317;
+  border: 1px solid rgba(139, 69, 19, 0.1);
+}
+
+.rb-empty {
+  font-size: 10px;
+  color: #ccc;
+}
+
+.command-table-wrapper {
+  background: #fffef9;
+  border: 1px solid rgba(139, 69, 19, 0.1);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.command-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 11px;
+}
+
+.command-table thead th {
+  background: rgba(95, 158, 160, 0.1);
+  color: #5F9EA0;
+  padding: 10px 12px;
+  text-align: left;
+  font-weight: 600;
+  font-size: 11px;
+  border-bottom: 2px solid rgba(95, 158, 160, 0.2);
+}
+
+.command-table tbody td {
+  padding: 8px 12px;
+  border-bottom: 1px solid rgba(139, 69, 19, 0.06);
+  vertical-align: top;
+}
+
+.command-table tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.command-table tbody tr:nth-child(even) td {
+  background: rgba(139, 69, 19, 0.02);
+}
+
+.col-step {
+  width: 80px;
+}
+
+.col-role {
+  width: 70px;
+}
+
+.col-beat {
+  width: 60px;
+}
+
+.col-wait {
+  width: 110px;
+}
+
+.step-cell {
+  border-right: 1px solid rgba(139, 69, 19, 0.08);
+  background: rgba(139, 69, 19, 0.04) !important;
+}
+
+.sc-order {
+  font-size: 16px;
+  font-weight: 700;
+  color: #8B4513;
+  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
+  line-height: 1;
+  margin-bottom: 4px;
+}
+
+.sc-title {
+  font-size: 11px;
+  color: #5c3317;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.role-pill {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid;
+  border-left-width: 3px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+.role-pill.unassigned {
+  color: #999;
+  border-color: #ddd;
+  background: #f5f5f5;
+}
+
+.cmd-cell {
+  color: #2C2C2C;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.beat-cell {
+  color: #8B4513;
+}
+
+.beat-chip {
+  display: inline-block;
+  background: rgba(139, 69, 19, 0.08);
+  border: 1px solid rgba(139, 69, 19, 0.15);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 500;
+}
+
+.wait-cell {
+  color: #8B6914;
+}
+
+.wait-chip {
+  display: inline-block;
+  margin: 1px 2px 1px 0;
+  background: rgba(212, 175, 55, 0.1);
+  border: 1px solid rgba(212, 175, 55, 0.25);
+  padding: 1px 6px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.wait-chip.none {
+  background: transparent;
+  border: none;
+  color: #ccc;
+}
+
+.no-commands {
+  text-align: center;
+  color: #bbb;
+  font-size: 11px;
+  padding: 12px !important;
+}
+
+.print-card.large-font .section-title {
+  font-size: 22px;
+}
+
+.print-card.large-font .role-block {
+  padding: 16px 18px;
+}
+
+.print-card.large-font .rb-name {
+  font-size: 17px;
+}
+
+.print-card.large-font .rb-desc {
+  font-size: 13px;
+}
+
+.print-card.large-font .rb-tag {
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+.print-card.large-font .command-table {
+  font-size: 13px;
+}
+
+.print-card.large-font .sc-order {
+  font-size: 19px;
+}
+
+.print-card.large-font .sc-title {
+  font-size: 13px;
 }
 </style>

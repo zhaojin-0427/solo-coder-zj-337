@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import type { CanvasElement, CeremonyStep, ElementDiff } from '@/types'
+import type { CanvasElement, CeremonyStep, ElementDiff, RehearsalRole } from '@/types'
 import { materialItems } from '@/data/templates'
 
 const props = defineProps<{
@@ -10,6 +10,8 @@ const props = defineProps<{
   compareMode?: boolean
   elementDiffs?: ElementDiff[]
   showDirection?: boolean
+  highlightedRoleId: string | null
+  roles: RehearsalRole[]
 }>()
 
 const emit = defineEmits<{
@@ -115,6 +117,34 @@ const deliveryRoutePath = computed(() => {
     midY,
   }
 })
+
+const highlightedRoleColor = computed(() => {
+  if (!props.highlightedRoleId) return null
+  const role = props.roles.find(r => r.id === props.highlightedRoleId)
+  return role?.color || null
+})
+
+function isHighlightedByRole(el: CanvasElement): boolean {
+  if (!props.highlightedRoleId) return false
+  return el.roleId === props.highlightedRoleId
+}
+
+function isDimmedByHighlight(el: CanvasElement): boolean {
+  if (!props.highlightedRoleId) return false
+  return el.roleId !== props.highlightedRoleId
+}
+
+function getRoleColorByElement(el: CanvasElement): string | null {
+  if (!el.roleId) return null
+  const role = props.roles.find(r => r.id === el.roleId)
+  return role?.color || null
+}
+
+function getRoleNameByElement(el: CanvasElement): string {
+  if (!el.roleId) return ''
+  const role = props.roles.find(r => r.id === el.roleId)
+  return role?.name || ''
+}
 
 function getElementIcon(type: string) {
   const item = materialItems.find(m => m.type === type)
@@ -342,6 +372,8 @@ defineExpose({
         'diff-added': getDiffType(element.id) === 'added',
         'diff-removed': getDiffType(element.id) === 'removed',
         'diff-moved': getDiffType(element.id) === 'moved',
+        'role-highlighted': isHighlightedByRole(element),
+        'role-dimmed': isDimmedByHighlight(element),
       }"
       :style="{
         left: element.x + 'px',
@@ -350,6 +382,8 @@ defineExpose({
         height: element.height + 'px',
         zIndex: element.zIndex,
         transform: `rotate(${element.rotation}deg)`,
+        '--role-color': getRoleColorByElement(element) || 'transparent',
+        '--highlight-color': highlightedRoleColor || 'transparent',
       }"
       @mousedown="!compareMode ? handleElementMouseDown($event, element) : null"
     >
@@ -357,9 +391,13 @@ defineExpose({
         class="element-body"
         :style="{
           backgroundColor: getElementColor(element.type) + '20',
-          borderColor: getElementColor(element.type),
+          borderColor: isHighlightedByRole(element) ? (highlightedRoleColor || getElementColor(element.type)) : (getRoleColorByElement(element) || getElementColor(element.type)),
+          borderWidth: isHighlightedByRole(element) ? '3px' : (getRoleColorByElement(element) ? '2.5px' : '2px'),
         }"
       >
+        <div v-if="getRoleColorByElement(element)" class="role-badge" :style="{ backgroundColor: getRoleColorByElement(element) }">
+          {{ getRoleNameByElement(element) }}
+        </div>
         <div class="element-icon" :style="{ color: getElementColor(element.type) }">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <rect v-if="element.type.startsWith('seat')" x="3" y="3" width="18" height="18" rx="3" />
@@ -753,5 +791,48 @@ defineExpose({
 .ghost-label {
   color: #666 !important;
   font-style: italic;
+}
+
+.canvas-element.role-highlighted {
+  z-index: 50 !important;
+  animation: role-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes role-pulse {
+  0%, 100% {
+    filter: drop-shadow(0 0 0px var(--highlight-color));
+  }
+  50% {
+    filter: drop-shadow(0 0 12px var(--highlight-color));
+  }
+}
+
+.canvas-element.role-dimmed {
+  opacity: 0.35;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+}
+
+.canvas-element.role-dimmed:hover {
+  opacity: 0.5;
+}
+
+.role-badge {
+  position: absolute;
+  top: -9px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+  letter-spacing: 0.5px;
+  z-index: 5;
+  max-width: calc(100% - 10px);
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 </style>
