@@ -1,8 +1,8 @@
-import { ref, computed, reactive } from 'vue'
+import { ref, computed } from 'vue'
 import type { CeremonyScene, CanvasElement, CeremonyStep, ViewMode, CeremonyScheme } from '@/types'
 import { ceremonyTemplates, getTemplateByScene, createDefaultElements } from '@/data/templates'
 import { generateId } from '@/utils/id'
-import { loadSchemes, saveSchemes, addScheme, updateScheme, deleteScheme } from '@/utils/storage'
+import { loadSchemes, addScheme, deleteScheme } from '@/utils/storage'
 
 const currentScene = ref<CeremonyScene>('welcome')
 const viewMode = ref<ViewMode>('top')
@@ -11,6 +11,8 @@ const selectedElementId = ref<string | null>(null)
 const currentStepIndex = ref(0)
 const schemeName = ref('未命名方案')
 const isPlaying = ref(false)
+let playInterval: number | null = null
+const PLAY_DURATION = 3000
 
 export function useCeremony() {
   const currentTemplate = computed(() => getTemplateByScene(currentScene.value))
@@ -32,7 +34,47 @@ export function useCeremony() {
     return currentStep.value?.involvedElements || []
   })
 
+  function startPlay() {
+    if (playInterval) {
+      clearInterval(playInterval)
+    }
+    isPlaying.value = true
+    playInterval = window.setInterval(() => {
+      if (currentStepIndex.value < steps.value.length - 1) {
+        currentStepIndex.value++
+      } else {
+        stopPlay()
+      }
+    }, PLAY_DURATION)
+  }
+
+  function stopPlay() {
+    if (playInterval) {
+      clearInterval(playInterval)
+      playInterval = null
+    }
+    isPlaying.value = false
+  }
+
+  function togglePlay() {
+    if (isPlaying.value) {
+      stopPlay()
+    } else {
+      if (currentStepIndex.value >= steps.value.length - 1) {
+        currentStepIndex.value = 0
+      }
+      startPlay()
+    }
+  }
+
+  function getElementLabel(id: string): string {
+    const el = elements.value.find(e => e.id === id)
+    if (el) return el.label
+    return id
+  }
+
   function setScene(scene: CeremonyScene) {
+    stopPlay()
     currentScene.value = scene
     elements.value = createDefaultElements(scene)
     currentStepIndex.value = 0
@@ -127,6 +169,7 @@ export function useCeremony() {
   }
 
   function loadScheme(scheme: CeremonyScheme) {
+    stopPlay()
     currentScene.value = scheme.scene
     elements.value = JSON.parse(JSON.stringify(scheme.elements))
     currentStepIndex.value = scheme.currentStepIndex
@@ -170,6 +213,10 @@ export function useCeremony() {
     prevStep,
     bringToFront,
     isInvolved,
+    startPlay,
+    stopPlay,
+    togglePlay,
+    getElementLabel,
     saveCurrentScheme,
     loadScheme,
     deleteSavedScheme,

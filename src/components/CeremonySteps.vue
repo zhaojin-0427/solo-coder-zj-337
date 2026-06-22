@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ArrowUp, ArrowDown, Play, Pause, RotateCcw } from 'lucide-vue-next'
-import type { CeremonyStep } from '@/types'
+import type { CeremonyStep, CanvasElement } from '@/types'
+import { computed } from 'vue'
 
-defineProps<{
+const props = defineProps<{
   steps: CeremonyStep[]
   currentStepIndex: number
+  isPlaying: boolean
+  elements: CanvasElement[]
 }>()
 
 const emit = defineEmits<{
@@ -20,6 +23,17 @@ function getStepStatus(index: number, currentIndex: number): 'done' | 'current' 
   if (index === currentIndex) return 'current'
   return 'upcoming'
 }
+
+function getElementLabel(id: string): string {
+  const el = props.elements.find(e => e.id === id)
+  return el?.label || id
+}
+
+const deliveryItemLabel = computed(() => {
+  const step = props.steps[props.currentStepIndex]
+  if (!step?.deliveryRoute) return ''
+  return getElementLabel(step.deliveryRoute.item)
+})
 </script>
 
 <template>
@@ -43,7 +57,8 @@ function getStepStatus(index: number, currentIndex: number): 'done' | 'current' 
         class="control-btn play-btn"
         @click="emit('toggle-play')"
       >
-        <Play class="w-4 h-4" />
+        <Pause v-if="isPlaying" class="w-5 h-5" />
+        <Play v-else class="w-5 h-5" />
       </button>
       <button
         class="control-btn"
@@ -91,11 +106,11 @@ function getStepStatus(index: number, currentIndex: number): 'done' | 'current' 
             <div v-if="step.deliveryRoute" class="delivery-route">
               <div class="route-label">器物递送</div>
               <div class="route-path">
-                <span class="route-from">{{ step.deliveryRoute.from }}</span>
+                <span class="route-from">{{ getElementLabel(step.deliveryRoute.from) }}</span>
                 <span class="route-arrow">→</span>
-                <span class="route-item">{{ step.deliveryRoute.item }}</span>
+                <span class="route-item">{{ getElementLabel(step.deliveryRoute.item) }}</span>
                 <span class="route-arrow">→</span>
-                <span class="route-to">{{ step.deliveryRoute.to }}</span>
+                <span class="route-to">{{ getElementLabel(step.deliveryRoute.to) }}</span>
               </div>
             </div>
           </div>

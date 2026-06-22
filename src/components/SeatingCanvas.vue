@@ -205,6 +205,14 @@ onUnmounted(() => {
   document.removeEventListener('mousemove', handleMouseMove)
   document.removeEventListener('mouseup', handleMouseUp)
 })
+
+function getCanvasElement(): HTMLDivElement | null {
+  return canvasRef.value
+}
+
+defineExpose({
+  getCanvasElement,
+})
 </script>
 
 <template>

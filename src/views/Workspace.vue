@@ -10,6 +10,7 @@ import ElementEditor from '@/components/ElementEditor.vue'
 import SchemeManager from '@/components/SchemeManager.vue'
 import PrintPreview from '@/components/PrintPreview.vue'
 import { useCeremony } from '@/composables/useCeremony'
+import { exportElementAsImage } from '@/utils/export'
 import type { CeremonyScene, CanvasElement, CeremonyScheme } from '@/types'
 
 const {
@@ -34,6 +35,7 @@ const {
   nextStep,
   prevStep,
   bringToFront,
+  togglePlay,
   saveCurrentScheme,
   loadScheme,
   deleteSavedScheme,
@@ -41,10 +43,12 @@ const {
   initDefault,
 } = useCeremony()
 
+const seatingCanvasRef = ref<InstanceType<typeof SeatingCanvas> | null>(null)
 const schemeManagerRef = ref<InstanceType<typeof SchemeManager> | null>(null)
 const showPrintPreview = ref(false)
 const schemes = ref<CeremonyScheme[]>([])
 const showInfo = ref(false)
+const isExporting = ref(false)
 
 const elementCount = computed(() => elements.value.length)
 
@@ -72,10 +76,6 @@ function handleStepChange(index: number) {
   setStepIndex(index)
 }
 
-function handleTogglePlay() {
-  isPlaying.value = !isPlaying.value
-}
-
 function handleReset() {
   setStepIndex(0)
 }
@@ -99,8 +99,21 @@ function handleDeleteScheme(schemeId: string) {
   schemes.value = getAllSchemes()
 }
 
-function handleExportImage() {
-  alert('图片导出功能即将上线！')
+async function handleExportImage() {
+  if (isExporting.value) return
+  isExporting.value = true
+  
+  try {
+    const canvasEl = seatingCanvasRef.value?.getCanvasElement()
+    if (canvasEl) {
+      const filename = `${schemeName.value || '席位示意图'}_${Date.now()}.png`
+      await exportElementAsImage(canvasEl, filename)
+    } else {
+      alert('无法获取画布元素')
+    }
+  } finally {
+    isExporting.value = false
+  }
 }
 
 function handlePrint() {
@@ -175,6 +188,7 @@ onMounted(() => {
       <main class="canvas-area">
         <template v-if="viewMode === 'top'">
           <SeatingCanvas
+            ref="seatingCanvasRef"
             :elements="elements"
             :selected-element-id="selectedElementId"
             :current-step="currentStep"
@@ -189,6 +203,7 @@ onMounted(() => {
           <FlowChartView
             :steps="steps"
             :current-step-index="currentStepIndex"
+            :elements="elements"
             @step-change="handleStepChange"
           />
         </template>
@@ -198,10 +213,12 @@ onMounted(() => {
         <CeremonySteps
           :steps="steps"
           :current-step-index="currentStepIndex"
+          :is-playing="isPlaying"
+          :elements="elements"
           @step-change="handleStepChange"
           @prev="prevStep"
           @next="nextStep"
-          @toggle-play="handleTogglePlay"
+          @toggle-play="togglePlay"
           @reset="handleReset"
         />
         <ElementEditor
