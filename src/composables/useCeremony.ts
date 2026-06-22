@@ -210,6 +210,7 @@ export function useCeremony() {
     const snapshot: SchemeSnapshot = {
       id: generateId('snap'),
       schemeId,
+      scene: currentScene.value,
       timestamp: Date.now(),
       name: schemeName.value,
       elements: JSON.parse(JSON.stringify(elements.value)),
@@ -273,9 +274,11 @@ export function useCeremony() {
 
   function loadSnapshot(snapshot: SchemeSnapshot) {
     stopPlay()
+    setScene(snapshot.scene)
     elements.value = JSON.parse(JSON.stringify(snapshot.elements))
     currentStepIndex.value = snapshot.currentStepIndex
     schemeName.value = `${snapshot.name} (快照恢复)`
+    currentSchemeId.value = snapshot.schemeId
     selectedElementId.value = null
   }
 

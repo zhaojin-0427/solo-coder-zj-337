@@ -13,6 +13,7 @@ export type PrintFontSize = 'standard' | 'large'
 export interface SchemeSnapshot {
   id: string
   schemeId: string
+  scene: CeremonyScene
   timestamp: number
   name: string
   elements: CanvasElement[]

@@ -319,6 +319,7 @@ onMounted(() => {
       :template="currentTemplate"
       :steps="steps"
       :scheme-name="schemeName"
+      :elements="elements"
       :default-settings="printSettings"
       @close="showPrintPreview = false"
       @update-settings="handleUpdatePrintSettings"

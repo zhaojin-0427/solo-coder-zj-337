@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
 import { X, Printer, Download, ZoomIn, ZoomOut, Type, Compass, ArrowRight } from 'lucide-vue-next'
-import type { CeremonyStep, CeremonyTemplate, PrintSettings, PrintFontSize } from '@/types'
+import type { CeremonyStep, CeremonyTemplate, PrintSettings, PrintFontSize, CanvasElement } from '@/types'
 
 const props = defineProps<{
   isOpen: boolean
   template: CeremonyTemplate | undefined
   steps: CeremonyStep[]
   schemeName: string
+  elements: CanvasElement[]
   defaultSettings?: PrintSettings
 }>()
 
@@ -59,6 +60,16 @@ function toggleShowDirection() {
 function toggleShowDeliveryRoute() {
   showDeliveryRoute.value = !showDeliveryRoute.value
   emitUpdate()
+}
+
+function getElementLabel(elementId: string): string {
+  const element = props.elements.find(el => el.id === elementId)
+  if (element) return element.label
+  const roleMatch = elementId.match(/-(seat|table|mat|vessel|candle|incense|flower|crown|altar)$/)
+  if (roleMatch) {
+    return elementId.split('-').map(s => s.charAt(0).toUpperCase() + s.slice(1)).join('')
+  }
+  return elementId
 }
 
 function emitUpdate() {
@@ -172,11 +183,11 @@ const cardClass = computed(() => ({
                 </div>
                 <div v-if="showDeliveryRoute && step.deliveryRoute" class="step-delivery">
                   <ArrowRight class="w-3 h-3 delivery-icon" />
-                  <span>{{ step.deliveryRoute.from }}</span>
+                  <span>{{ getElementLabel(step.deliveryRoute.from) }}</span>
                   <span class="delivery-arrow">→</span>
                   <span class="delivery-item">{{ step.deliveryRoute.item }}</span>
                   <span class="delivery-arrow">→</span>
-                  <span>{{ step.deliveryRoute.to }}</span>
+                  <span>{{ getElementLabel(step.deliveryRoute.to) }}</span>
                 </div>
               </div>
             </div>
