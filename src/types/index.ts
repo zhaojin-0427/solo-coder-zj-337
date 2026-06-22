@@ -1,8 +1,23 @@
 export type CeremonyScene = 'welcome' | 'tea' | 'capping' | 'sacrifice'
 
-export type ViewMode = 'top' | 'flow'
+export type ViewMode = 'top' | 'flow' | 'compare'
+
+export type CompareViewMode = 'top' | 'flow'
 
 export type ElementCategory = 'seat' | 'table' | 'mat' | 'vessel' | 'decor'
+
+export type DiffType = 'added' | 'removed' | 'moved' | 'unchanged'
+
+export type PrintFontSize = 'standard' | 'large'
+
+export interface SchemeSnapshot {
+  id: string
+  schemeId: string
+  timestamp: number
+  name: string
+  elements: CanvasElement[]
+  currentStepIndex: number
+}
 
 export type ElementType =
   | 'seat-main'
@@ -77,4 +92,45 @@ export interface MaterialItem {
   defaultWidth: number
   defaultHeight: number
   icon: string
+}
+
+export interface ElementDiff {
+  elementId: string
+  element?: CanvasElement
+  baseElement?: CanvasElement
+  diffType: DiffType
+  displacement?: { dx: number; dy: number }
+}
+
+export interface StepDiff {
+  stepId: string
+  step?: CeremonyStep
+  baseStep?: CeremonyStep
+  diffType: DiffType
+  changedFields?: string[]
+}
+
+export interface CompareResult {
+  schemeA: CeremonyScheme
+  schemeB: CeremonyScheme
+  elementDiffsA: ElementDiff[]
+  elementDiffsB: ElementDiff[]
+  stepDiffsA: StepDiff[]
+  stepDiffsB: StepDiff[]
+}
+
+export interface PrintSettings {
+  fontSize: PrintFontSize
+  showDirection: boolean
+  showDeliveryRoute: boolean
+}
+
+export interface CeremonyScheme {
+  id: string
+  name: string
+  scene: CeremonyScene
+  createdAt: number
+  updatedAt: number
+  elements: CanvasElement[]
+  currentStepIndex: number
 }

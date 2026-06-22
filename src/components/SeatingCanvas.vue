@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import type { CanvasElement, CeremonyStep } from '@/types'
+import type { CanvasElement, CeremonyStep, ElementDiff } from '@/types'
 import { materialItems } from '@/data/templates'
 
 const props = defineProps<{
   elements: CanvasElement[]
   selectedElementId: string | null
   currentStep: CeremonyStep | null
+  compareMode?: boolean
+  elementDiffs?: ElementDiff[]
+  showDirection?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -25,6 +28,63 @@ const isDragOver = ref(false)
 
 const sortedElements = computed(() => {
   return [...props.elements].sort((a, b) => a.zIndex - b.zIndex)
+})
+
+const diffMap = computed(() => {
+  const map = new Map<string, ElementDiff>()
+  if (props.elementDiffs) {
+    for (const diff of props.elementDiffs) {
+      map.set(diff.elementId, diff)
+    }
+  }
+  return map
+})
+
+const displacementArrows = computed(() => {
+  const arrows: Array<{
+    id: string
+    fromX: number
+    fromY: number
+    toX: number
+    toY: number
+    dx: number
+    dy: number
+  }> = []
+  if (props.elementDiffs) {
+    for (const diff of props.elementDiffs) {
+      if (diff.diffType === 'moved' && diff.displacement && diff.element && diff.baseElement) {
+        const fromX = diff.element.x + diff.element.width / 2
+        const fromY = diff.element.y + diff.element.height / 2
+        const toX = diff.baseElement.x + diff.baseElement.width / 2
+        const toY = diff.baseElement.y + diff.baseElement.height / 2
+        arrows.push({
+          id: diff.elementId,
+          fromX,
+          fromY,
+          toX,
+          toY,
+          dx: diff.displacement.dx,
+          dy: diff.displacement.dy,
+        })
+      }
+    }
+  }
+  return arrows
+})
+
+const ghostElements = computed(() => {
+  const ghosts: Array<{ element: CanvasElement }> = []
+  if (props.elementDiffs && props.compareMode) {
+    for (const diff of props.elementDiffs) {
+      if (diff.diffType === 'added' && !diff.element && diff.baseElement) {
+        ghosts.push({ element: diff.baseElement })
+      }
+      if (diff.diffType === 'removed' && !diff.element && diff.baseElement) {
+        ghosts.push({ element: diff.baseElement })
+      }
+    }
+  }
+  return ghosts
 })
 
 const deliveryRoutePath = computed(() => {
@@ -78,6 +138,20 @@ function getElementColor(type: string): string {
 
 function isInvolved(id: string): boolean {
   return props.currentStep?.involvedElements.includes(id) || false
+}
+
+function getDiffType(id: string): string | null {
+  if (!props.compareMode) return null
+  const diff = diffMap.value.get(id)
+  return diff?.diffType || null
+}
+
+function getDiffLabel(id: string): string {
+  const type = getDiffType(id)
+  if (type === 'added') return '新增'
+  if (type === 'removed') return '缺失'
+  if (type === 'moved') return '位移'
+  return ''
 }
 
 function handleCanvasClick(e: MouseEvent) {
@@ -230,12 +304,32 @@ defineExpose({
       <div class="paper-texture"></div>
     </div>
     
-    <svg class="direction-indicator" viewBox="0 0 100 100">
+    <svg v-if="showDirection !== false" class="direction-indicator" viewBox="0 0 100 100">
       <text x="50" y="18" text-anchor="middle" class="dir-text">北</text>
       <text x="95" y="54" text-anchor="end" class="dir-text">东</text>
       <text x="50" y="98" text-anchor="middle" class="dir-text">南</text>
       <text x="5" y="54" text-anchor="start" class="dir-text">西</text>
     </svg>
+
+    <div
+      v-for="ghost in ghostElements"
+      :key="'ghost-' + ghost.element.id"
+      class="canvas-element ghost"
+      :style="{
+        left: ghost.element.x + 'px',
+        top: ghost.element.y + 'px',
+        width: ghost.element.width + 'px',
+        height: ghost.element.height + 'px',
+        zIndex: 1,
+        transform: `rotate(${ghost.element.rotation}deg)`,
+      }"
+    >
+      <div
+        class="element-body ghost-body"
+      >
+        <div class="element-label ghost-label">{{ ghost.element.label }}</div>
+      </div>
+    </div>
     
     <div
       v-for="element in sortedElements"
@@ -245,6 +339,9 @@ defineExpose({
         selected: element.id === selectedElementId,
         involved: isInvolved(element.id),
         dragging: dragElementId === element.id,
+        'diff-added': getDiffType(element.id) === 'added',
+        'diff-removed': getDiffType(element.id) === 'removed',
+        'diff-moved': getDiffType(element.id) === 'moved',
       }"
       :style="{
         left: element.x + 'px',
@@ -254,7 +351,7 @@ defineExpose({
         zIndex: element.zIndex,
         transform: `rotate(${element.rotation}deg)`,
       }"
-      @mousedown="handleElementMouseDown($event, element)"
+      @mousedown="!compareMode ? handleElementMouseDown($event, element) : null"
     >
       <div
         class="element-body"
@@ -284,10 +381,55 @@ defineExpose({
         </div>
         <div class="element-label">{{ element.label }}</div>
         <div v-if="element.role" class="element-role">{{ element.role }}</div>
+        <div v-if="compareMode && getDiffType(element.id) && getDiffType(element.id) !== 'unchanged'" class="diff-badge" :class="'diff-' + getDiffType(element.id)">
+          {{ getDiffLabel(element.id) }}
+        </div>
       </div>
       
-      <div v-if="element.id === selectedElementId" class="resize-handle se"></div>
+      <div v-if="element.id === selectedElementId && !compareMode" class="resize-handle se"></div>
     </div>
+
+    <svg v-if="compareMode && displacementArrows.length > 0" class="displacement-layer">
+      <defs>
+        <marker id="displacement-arrow" markerWidth="8" markerHeight="6" refX="7" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="#3498db" />
+        </marker>
+      </defs>
+      <g v-for="arrow in displacementArrows" :key="'arr-' + arrow.id">
+        <line
+          :x1="arrow.fromX"
+          :y1="arrow.fromY"
+          :x2="arrow.toX"
+          :y2="arrow.toY"
+          stroke="#3498db"
+          stroke-width="2"
+          stroke-dasharray="6 4"
+          marker-end="url(#displacement-arrow)"
+        />
+        <rect
+          :x="(arrow.fromX + arrow.toX) / 2 - 35"
+          :y="(arrow.fromY + arrow.toY) / 2 - 14"
+          width="70"
+          height="24"
+          rx="4"
+          fill="white"
+          stroke="#3498db"
+          stroke-width="1"
+          opacity="0.95"
+        />
+        <text
+          :x="(arrow.fromX + arrow.toX) / 2"
+          :y="(arrow.fromY + arrow.toY) / 2 + 3"
+          text-anchor="middle"
+          font-size="11"
+          fill="#2980b9"
+          font-weight="500"
+        >
+          {{ arrow.dx > 0 ? '→' : arrow.dx < 0 ? '←' : '' }}{{ Math.abs(arrow.dx) }}px
+          {{ arrow.dy > 0 ? '↓' : arrow.dy < 0 ? '↑' : '' }}{{ Math.abs(arrow.dy) }}px
+        </text>
+      </g>
+    </svg>
     
     <svg v-if="deliveryRoutePath" class="route-layer">
       <defs>
@@ -519,5 +661,97 @@ defineExpose({
 
 .route-item-badge {
   filter: drop-shadow(0 2px 4px rgba(212, 175, 55, 0.3));
+}
+
+.canvas-element.diff-added .element-body {
+  border-color: #27ae60 !important;
+  border-width: 3px !important;
+  box-shadow: 0 0 0 2px rgba(39, 174, 96, 0.2), 0 4px 12px rgba(39, 174, 96, 0.15) !important;
+  animation: diff-pulse-green 2s ease-in-out infinite;
+}
+
+.canvas-element.diff-removed .element-body {
+  border-color: #e74c3c !important;
+  border-width: 3px !important;
+  box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2), 0 4px 12px rgba(231, 76, 60, 0.15) !important;
+  opacity: 0.7;
+  animation: diff-pulse-red 2s ease-in-out infinite;
+}
+
+.canvas-element.diff-moved .element-body {
+  border-color: #f39c12 !important;
+  border-width: 3px !important;
+  box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2), 0 4px 12px rgba(243, 156, 18, 0.15) !important;
+  animation: diff-pulse-yellow 2s ease-in-out infinite;
+}
+
+@keyframes diff-pulse-green {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(39, 174, 96, 0.2), 0 4px 12px rgba(39, 174, 96, 0.15); }
+  50% { box-shadow: 0 0 0 4px rgba(39, 174, 96, 0.3), 0 6px 16px rgba(39, 174, 96, 0.25); }
+}
+
+@keyframes diff-pulse-red {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(231, 76, 60, 0.2), 0 4px 12px rgba(231, 76, 60, 0.15); }
+  50% { box-shadow: 0 0 0 4px rgba(231, 76, 60, 0.3), 0 6px 16px rgba(231, 76, 60, 0.25); }
+}
+
+@keyframes diff-pulse-yellow {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(243, 156, 18, 0.2), 0 4px 12px rgba(243, 156, 18, 0.15); }
+  50% { box-shadow: 0 0 0 4px rgba(243, 156, 18, 0.3), 0 6px 16px rgba(243, 156, 18, 0.25); }
+}
+
+.diff-badge {
+  position: absolute;
+  top: -8px;
+  right: -8px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: white;
+  z-index: 10;
+  white-space: nowrap;
+}
+
+.diff-badge.diff-added {
+  background: #27ae60;
+}
+
+.diff-badge.diff-removed {
+  background: #e74c3c;
+}
+
+.diff-badge.diff-moved {
+  background: #f39c12;
+}
+
+.displacement-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 90;
+}
+
+.canvas-element.ghost {
+  pointer-events: none;
+}
+
+.ghost-body {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(150, 150, 150, 0.1),
+    rgba(150, 150, 150, 0.1) 4px,
+    rgba(200, 200, 200, 0.15) 4px,
+    rgba(200, 200, 200, 0.15) 8px
+  ) !important;
+  border: 2px dashed #999 !important;
+  opacity: 0.5;
+}
+
+.ghost-label {
+  color: #666 !important;
+  font-style: italic;
 }
 </style>

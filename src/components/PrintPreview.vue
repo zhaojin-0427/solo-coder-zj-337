@@ -1,20 +1,26 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue'
-import { X, Printer, Download, ZoomIn, ZoomOut } from 'lucide-vue-next'
-import type { CeremonyStep, CeremonyTemplate } from '@/types'
+import { X, Printer, Download, ZoomIn, ZoomOut, Type, Compass, ArrowRight } from 'lucide-vue-next'
+import type { CeremonyStep, CeremonyTemplate, PrintSettings, PrintFontSize } from '@/types'
 
 const props = defineProps<{
   isOpen: boolean
   template: CeremonyTemplate | undefined
   steps: CeremonyStep[]
   schemeName: string
+  defaultSettings?: PrintSettings
 }>()
 
 const emit = defineEmits<{
   (e: 'close'): void
+  (e: 'update-settings', settings: PrintSettings): void
 }>()
 
 const zoom = ref(1)
+
+const fontSize = ref<PrintFontSize>(props.defaultSettings?.fontSize || 'standard')
+const showDirection = ref<boolean>(props.defaultSettings?.showDirection !== false)
+const showDeliveryRoute = ref<boolean>(props.defaultSettings?.showDeliveryRoute !== false)
 
 const formattedDate = computed(() => {
   const now = new Date()
@@ -39,6 +45,33 @@ function zoomOut() {
 function handlePrint() {
   window.print()
 }
+
+function toggleFontSize() {
+  fontSize.value = fontSize.value === 'standard' ? 'large' : 'standard'
+  emitUpdate()
+}
+
+function toggleShowDirection() {
+  showDirection.value = !showDirection.value
+  emitUpdate()
+}
+
+function toggleShowDeliveryRoute() {
+  showDeliveryRoute.value = !showDeliveryRoute.value
+  emitUpdate()
+}
+
+function emitUpdate() {
+  emit('update-settings', {
+    fontSize: fontSize.value,
+    showDirection: showDirection.value,
+    showDeliveryRoute: showDeliveryRoute.value,
+  })
+}
+
+const cardClass = computed(() => ({
+  'large-font': fontSize.value === 'large',
+}))
 </script>
 
 <template>
@@ -55,6 +88,37 @@ function handlePrint() {
           <span class="toolbar-title">仪程卡预览</span>
         </div>
         <div class="toolbar-right">
+          <div class="toolbar-divider"></div>
+          <div class="settings-group">
+            <button
+              class="toolbar-btn setting-btn"
+              :class="{ active: fontSize === 'large' }"
+              title="大字版"
+              @click="toggleFontSize"
+            >
+              <Type class="w-4 h-4" />
+              <span>大字版</span>
+            </button>
+            <button
+              class="toolbar-btn setting-btn"
+              :class="{ active: showDirection }"
+              title="显示方向提示"
+              @click="toggleShowDirection"
+            >
+              <Compass class="w-4 h-4" />
+              <span>方向</span>
+            </button>
+            <button
+              class="toolbar-btn setting-btn"
+              :class="{ active: showDeliveryRoute }"
+              title="显示器物递送路线"
+              @click="toggleShowDeliveryRoute"
+            >
+              <ArrowRight class="w-4 h-4" />
+              <span>递送</span>
+            </button>
+          </div>
+          <div class="toolbar-divider"></div>
           <button class="toolbar-btn" @click="zoomOut">
             <ZoomOut class="w-4 h-4" />
           </button>
@@ -70,7 +134,7 @@ function handlePrint() {
       </div>
       
       <div class="print-container">
-        <div class="print-card" :style="{ transform: `scale(${zoom})` }">
+        <div class="print-card" :class="cardClass" :style="{ transform: `scale(${zoom})` }">
           <div class="card-header">
             <div class="header-decoration left"></div>
             <div class="header-title">
@@ -100,8 +164,19 @@ function handlePrint() {
                 <div class="step-desc">{{ step.description }}</div>
                 <div class="step-tags">
                   <span v-if="step.gesture" class="tag">{{ step.gesture }}</span>
-                  <span v-if="step.direction" class="tag">{{ step.direction }}</span>
+                  <span v-if="showDirection && step.direction" class="tag direction-tag">
+                    <Compass class="w-3 h-3 tag-icon" />
+                    {{ step.direction }}
+                  </span>
                   <span v-if="step.duration" class="tag">{{ step.duration }}</span>
+                </div>
+                <div v-if="showDeliveryRoute && step.deliveryRoute" class="step-delivery">
+                  <ArrowRight class="w-3 h-3 delivery-icon" />
+                  <span>{{ step.deliveryRoute.from }}</span>
+                  <span class="delivery-arrow">→</span>
+                  <span class="delivery-item">{{ step.deliveryRoute.item }}</span>
+                  <span class="delivery-arrow">→</span>
+                  <span>{{ step.deliveryRoute.to }}</span>
                 </div>
               </div>
             </div>
@@ -161,6 +236,7 @@ function handlePrint() {
   background: #2C2C2C;
   border-bottom: 1px solid #444;
   color: #fff;
+  flex-shrink: 0;
 }
 
 .toolbar-left,
@@ -179,6 +255,32 @@ function handlePrint() {
   font-size: 14px;
   font-weight: 500;
   color: #ddd;
+}
+
+.toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: rgba(255, 255, 255, 0.15);
+  margin: 0 8px;
+}
+
+.settings-group {
+  display: flex;
+  gap: 6px;
+}
+
+.setting-btn {
+  flex-direction: column !important;
+  padding: 6px 10px !important;
+  gap: 2px !important;
+  font-size: 10px !important;
+  min-width: 56px;
+}
+
+.setting-btn.active {
+  background: rgba(95, 158, 160, 0.25) !important;
+  border-color: #5F9EA0 !important;
+  color: #9fd5d7 !important;
 }
 
 .toolbar-btn {
@@ -233,6 +335,57 @@ function handlePrint() {
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
   transform-origin: top center;
   position: relative;
+  transition: all 0.2s ease;
+}
+
+.print-card.large-font {
+  padding: 40px 50px;
+}
+
+.print-card.large-font .title-chinese {
+  font-size: 44px;
+}
+
+.print-card.large-font .title-english {
+  font-size: 13px;
+}
+
+.print-card.large-font .scheme-name {
+  font-size: 18px;
+}
+
+.print-card.large-font .step-order {
+  width: 64px;
+  height: 64px;
+}
+
+.print-card.large-font .order-number {
+  font-size: 24px;
+}
+
+.print-card.large-font .step-name {
+  font-size: 22px;
+}
+
+.print-card.large-font .step-desc {
+  font-size: 16px;
+}
+
+.print-card.large-font .tag {
+  font-size: 13px;
+  padding: 4px 12px;
+}
+
+.print-card.large-font .step-delivery {
+  font-size: 14px;
+}
+
+.print-card.large-font .card-step {
+  gap: 24px;
+}
+
+.print-card.large-font .card-steps {
+  gap: 28px;
 }
 
 .card-header {
@@ -347,6 +500,7 @@ function handlePrint() {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  margin-bottom: 8px;
 }
 
 .tag {
@@ -356,6 +510,51 @@ function handlePrint() {
   padding: 3px 10px;
   border-radius: 12px;
   border: 1px solid rgba(139, 69, 19, 0.15);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tag-icon {
+  flex-shrink: 0;
+}
+
+.direction-tag {
+  background: rgba(95, 158, 160, 0.1);
+  border-color: rgba(95, 158, 160, 0.2);
+  color: #5F9EA0;
+}
+
+.step-delivery {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+  padding: 8px 12px;
+  background: rgba(212, 175, 55, 0.08);
+  border-radius: 6px;
+  border-left: 3px solid #D4AF37;
+}
+
+.delivery-icon {
+  color: #D4AF37;
+  flex-shrink: 0;
+}
+
+.delivery-arrow {
+  color: #D4AF37;
+  font-weight: 600;
+  margin: 0 2px;
+}
+
+.delivery-item {
+  background: rgba(212, 175, 55, 0.18);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: #8B6914;
+  font-size: 11px;
+  font-weight: 500;
 }
 
 .card-footer {

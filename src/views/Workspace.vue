@@ -9,9 +9,10 @@ import FlowChartView from '@/components/FlowChartView.vue'
 import ElementEditor from '@/components/ElementEditor.vue'
 import SchemeManager from '@/components/SchemeManager.vue'
 import PrintPreview from '@/components/PrintPreview.vue'
+import SchemeCompare from '@/components/SchemeCompare.vue'
 import { useCeremony } from '@/composables/useCeremony'
 import { exportElementAsImage } from '@/utils/export'
-import type { CeremonyScene, CanvasElement, CeremonyScheme } from '@/types'
+import type { CeremonyScene, CanvasElement, CeremonyScheme, SchemeSnapshot, PrintSettings } from '@/types'
 
 const {
   currentScene,
@@ -25,8 +26,15 @@ const {
   steps,
   currentStep,
   selectedElement,
+  currentSchemeId,
+  isCompareMode,
+  compareViewMode,
+  compareResult,
+  printSettings,
   setScene,
   setViewMode,
+  setCompareViewMode,
+  exitCompareMode,
   addElement,
   updateElement,
   deleteElement,
@@ -40,6 +48,11 @@ const {
   loadScheme,
   deleteSavedScheme,
   getAllSchemes,
+  getSchemeSnapshots,
+  restoreSnapshot,
+  deleteSnapshotById,
+  startCompare,
+  updatePrintSettings,
   initDefault,
 } = useCeremony()
 
@@ -120,6 +133,27 @@ function handlePrint() {
   showPrintPreview.value = true
 }
 
+function handleCompareSchemes(schemeA: CeremonyScheme, schemeB: CeremonyScheme) {
+  const success = startCompare(schemeA, schemeB)
+  if (!success) {
+    alert('只能对比同场景的方案')
+  }
+  schemeManagerRef.value?.close()
+}
+
+function handleRestoreSnapshot(snapshot: SchemeSnapshot) {
+  restoreSnapshot(snapshot.id)
+  schemeManagerRef.value?.close()
+}
+
+function handleDeleteSnapshot(snapshotId: string) {
+  deleteSnapshotById(snapshotId)
+}
+
+function handleUpdatePrintSettings(settings: PrintSettings) {
+  updatePrintSettings(settings)
+}
+
 onMounted(() => {
   initDefault()
 })
@@ -181,54 +215,64 @@ onMounted(() => {
     </header>
     
     <div class="main-content">
-      <aside class="left-sidebar">
-        <MaterialLibrary />
-      </aside>
-      
-      <main class="canvas-area">
-        <template v-if="viewMode === 'top'">
-          <SeatingCanvas
-            ref="seatingCanvasRef"
-            :elements="elements"
-            :selected-element-id="selectedElementId"
-            :current-step="currentStep"
-            @select="handleSelectElement"
-            @update-element="handleUpdateElement"
-            @add-element="handleAddElement"
-            @delete-element="handleDeleteElement"
-            @bring-to-front="bringToFront"
-          />
-        </template>
-        <template v-else>
-          <FlowChartView
+      <template v-if="isCompareMode">
+        <SchemeCompare
+          :compare-result="compareResult"
+          :compare-view-mode="compareViewMode"
+          @exit="exitCompareMode"
+          @change-view="setCompareViewMode"
+        />
+      </template>
+      <template v-else>
+        <aside class="left-sidebar">
+          <MaterialLibrary />
+        </aside>
+        
+        <main class="canvas-area">
+          <template v-if="viewMode === 'top'">
+            <SeatingCanvas
+              ref="seatingCanvasRef"
+              :elements="elements"
+              :selected-element-id="selectedElementId"
+              :current-step="currentStep"
+              @select="handleSelectElement"
+              @update-element="handleUpdateElement"
+              @add-element="handleAddElement"
+              @delete-element="handleDeleteElement"
+              @bring-to-front="bringToFront"
+            />
+          </template>
+          <template v-else>
+            <FlowChartView
+              :steps="steps"
+              :current-step-index="currentStepIndex"
+              :elements="elements"
+              @step-change="handleStepChange"
+            />
+          </template>
+        </main>
+        
+        <aside class="right-sidebar">
+          <CeremonySteps
             :steps="steps"
             :current-step-index="currentStepIndex"
+            :is-playing="isPlaying"
             :elements="elements"
             @step-change="handleStepChange"
+            @prev="prevStep"
+            @next="nextStep"
+            @toggle-play="togglePlay"
+            @reset="handleReset"
           />
-        </template>
-      </main>
-      
-      <aside class="right-sidebar">
-        <CeremonySteps
-          :steps="steps"
-          :current-step-index="currentStepIndex"
-          :is-playing="isPlaying"
-          :elements="elements"
-          @step-change="handleStepChange"
-          @prev="prevStep"
-          @next="nextStep"
-          @toggle-play="togglePlay"
-          @reset="handleReset"
-        />
-        <ElementEditor
-          v-if="selectedElement && viewMode === 'top'"
-          :element="selectedElement"
-          @update="handleUpdateElement"
-          @delete="handleDeleteElement"
-          @bring-to-front="bringToFront"
-        />
-      </aside>
+          <ElementEditor
+            v-if="selectedElement && viewMode === 'top'"
+            :element="selectedElement"
+            @update="handleUpdateElement"
+            @delete="handleDeleteElement"
+            @bring-to-front="bringToFront"
+          />
+        </aside>
+      </template>
     </div>
     
     <footer class="status-bar">
@@ -261,9 +305,13 @@ onMounted(() => {
       ref="schemeManagerRef"
       :schemes="schemes"
       :current-scheme-name="schemeName"
+      :load-snapshots-fn="getSchemeSnapshots"
       @save="handleSaveScheme"
       @load="handleLoadScheme"
       @delete="handleDeleteScheme"
+      @compare="handleCompareSchemes"
+      @restore-snapshot="handleRestoreSnapshot"
+      @delete-snapshot="handleDeleteSnapshot"
     />
     
     <PrintPreview
@@ -271,7 +319,9 @@ onMounted(() => {
       :template="currentTemplate"
       :steps="steps"
       :scheme-name="schemeName"
+      :default-settings="printSettings"
       @close="showPrintPreview = false"
+      @update-settings="handleUpdatePrintSettings"
     />
   </div>
 </template>

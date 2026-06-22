@@ -1,12 +1,15 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { ArrowRight, User, Droplets, Coffee, Crown, Flame } from 'lucide-vue-next'
-import type { CeremonyStep, CanvasElement } from '@/types'
+import type { CeremonyStep, CanvasElement, StepDiff } from '@/types'
 
 const props = defineProps<{
   steps: CeremonyStep[]
   currentStepIndex: number
   elements: CanvasElement[]
+  compareMode?: boolean
+  stepDiffs?: StepDiff[]
+  showDeliveryRoute?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -34,6 +37,57 @@ function getElementLabel(id: string): string {
 }
 
 const currentStep = computed(() => props.steps[props.currentStepIndex] || null)
+
+const diffMap = computed(() => {
+  const map = new Map<string, StepDiff>()
+  if (props.stepDiffs) {
+    for (const diff of props.stepDiffs) {
+      map.set(diff.stepId, diff)
+    }
+  }
+  return map
+})
+
+const ghostSteps = computed(() => {
+  const ghosts: Array<{ step: CeremonyStep }> = []
+  if (props.stepDiffs && props.compareMode) {
+    for (const diff of props.stepDiffs) {
+      if (!diff.step && diff.baseStep) {
+        ghosts.push({ step: diff.baseStep })
+      }
+    }
+  }
+  return ghosts
+})
+
+function getStepDiffType(stepId: string): string | null {
+  if (!props.compareMode) return null
+  const diff = diffMap.value.get(stepId)
+  return diff?.diffType || null
+}
+
+function getStepDiffLabel(stepId: string): string {
+  const type = getStepDiffType(stepId)
+  if (type === 'added') return '新增步骤'
+  if (type === 'removed') return '移除步骤'
+  if (type === 'moved') return '内容变更'
+  return ''
+}
+
+function getStepChangedFields(stepId: string): string[] {
+  if (!props.compareMode) return []
+  const diff = diffMap.value.get(stepId)
+  return diff?.changedFields || []
+}
+
+const fieldLabelMap: Record<string, string> = {
+  title: '名称',
+  description: '描述',
+  direction: '方向',
+  gesture: '礼仪',
+  duration: '时长',
+  order: '顺序',
+}
 </script>
 
 <template>
@@ -45,14 +99,37 @@ const currentStep = computed(() => props.steps[props.currentStepIndex] || null)
     
     <div class="flow-container">
       <div
+        v-for="ghost in ghostSteps"
+        :key="'ghost-' + ghost.step.id"
+        class="flow-node-wrapper"
+      >
+        <div class="flow-node ghost-node">
+          <div class="node-number ghost-number">{{ ghost.step.order }}</div>
+          <div class="node-icon ghost-icon">
+            <component :is="getStepIcon(ghost.step)" class="w-5 h-5" />
+          </div>
+          <div class="node-title">{{ ghost.step.title }}</div>
+          <div class="diff-badge diff-removed">已移除</div>
+        </div>
+        <div class="flow-connector">
+          <ArrowRight class="w-5 h-5" style="opacity: 0.3" />
+        </div>
+      </div>
+      <div
         v-for="(step, index) in steps"
         :key="step.id"
         class="flow-node-wrapper"
       >
         <div
           class="flow-node"
-          :class="{ active: index === currentStepIndex, done: index < currentStepIndex }"
-          @click="emit('step-change', index)"
+          :class="{
+            active: !compareMode && index === currentStepIndex,
+            done: !compareMode && index < currentStepIndex,
+            'diff-added': getStepDiffType(step.id) === 'added',
+            'diff-removed': getStepDiffType(step.id) === 'removed',
+            'diff-moved': getStepDiffType(step.id) === 'moved',
+          }"
+          @click="!compareMode ? emit('step-change', index) : null"
         >
           <div class="node-number">{{ step.order }}</div>
           <div class="node-icon">
@@ -60,6 +137,12 @@ const currentStep = computed(() => props.steps[props.currentStepIndex] || null)
           </div>
           <div class="node-title">{{ step.title }}</div>
           <div class="node-gesture">{{ step.gesture }}</div>
+          <div v-if="compareMode && getStepDiffType(step.id) && getStepDiffType(step.id) !== 'unchanged'" class="diff-badge" :class="'diff-' + getStepDiffType(step.id)">
+            {{ getStepDiffLabel(step.id) }}
+          </div>
+          <div v-if="compareMode && getStepChangedFields(step.id).length > 0" class="changed-fields">
+            {{ getStepChangedFields(step.id).map(f => fieldLabelMap[f] || f).join('、') }}
+          </div>
         </div>
         
         <div v-if="index < steps.length - 1" class="flow-connector">
@@ -68,13 +151,13 @@ const currentStep = computed(() => props.steps[props.currentStepIndex] || null)
       </div>
     </div>
     
-    <div v-if="currentStep" class="flow-detail">
+    <div v-if="currentStep && !compareMode" class="flow-detail">
       <div class="detail-header">
         <span class="detail-badge">第 {{ currentStepIndex + 1 }} 步</span>
         <span class="detail-title">{{ currentStep.title }}</span>
       </div>
       <p class="detail-desc">{{ currentStep.description }}</p>
-      <div v-if="currentStep.deliveryRoute" class="detail-route">
+      <div v-if="showDeliveryRoute !== false && currentStep.deliveryRoute" class="detail-route">
         <strong>器物递送：</strong>
         <span>{{ getElementLabel(currentStep.deliveryRoute.from) }}</span>
         <span class="route-arrow">→</span>
@@ -277,5 +360,108 @@ const currentStep = computed(() => props.steps[props.currentStepIndex] || null)
   border-radius: 4px;
   color: #8B6914;
   font-size: 12px;
+}
+
+.flow-node.diff-added {
+  border-color: #27ae60 !important;
+  border-width: 3px !important;
+  box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.15);
+  animation: flow-pulse-green 2s ease-in-out infinite;
+}
+
+.flow-node.diff-removed {
+  border-color: #e74c3c !important;
+  border-width: 3px !important;
+  opacity: 0.7;
+  box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.15);
+  animation: flow-pulse-red 2s ease-in-out infinite;
+}
+
+.flow-node.diff-moved {
+  border-color: #f39c12 !important;
+  border-width: 3px !important;
+  box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.15);
+  animation: flow-pulse-yellow 2s ease-in-out infinite;
+}
+
+@keyframes flow-pulse-green {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(39, 174, 96, 0.15); }
+  50% { box-shadow: 0 0 0 5px rgba(39, 174, 96, 0.25); }
+}
+
+@keyframes flow-pulse-red {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(231, 76, 60, 0.15); }
+  50% { box-shadow: 0 0 0 5px rgba(231, 76, 60, 0.25); }
+}
+
+@keyframes flow-pulse-yellow {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(243, 156, 18, 0.15); }
+  50% { box-shadow: 0 0 0 5px rgba(243, 156, 18, 0.25); }
+}
+
+.flow-node.diff-added .node-number {
+  background: #27ae60 !important;
+  color: white !important;
+}
+
+.flow-node.diff-removed .node-number {
+  background: #e74c3c !important;
+  color: white !important;
+}
+
+.flow-node.diff-moved .node-number {
+  background: #f39c12 !important;
+  color: white !important;
+}
+
+.flow-node .diff-badge {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  font-size: 9px;
+  font-weight: 600;
+  color: white;
+  white-space: nowrap;
+}
+
+.flow-node.diff-added .diff-badge.diff-added {
+  background: #27ae60;
+}
+
+.flow-node.diff-removed .diff-badge.diff-removed {
+  background: #e74c3c;
+}
+
+.flow-node.diff-moved .diff-badge.diff-moved {
+  background: #f39c12;
+}
+
+.changed-fields {
+  margin-top: 6px;
+  font-size: 10px;
+  color: #888;
+  padding: 2px 6px;
+  background: rgba(243, 156, 18, 0.1);
+  border-radius: 4px;
+}
+
+.ghost-node {
+  background: repeating-linear-gradient(
+    45deg,
+    rgba(245, 245, 245, 0.5),
+    rgba(245, 245, 245, 0.5) 4px,
+    rgba(250, 250, 250, 0.7) 4px,
+    rgba(250, 250, 250, 0.7) 8px
+  ) !important;
+  border: 2px dashed #bbb !important;
+  opacity: 0.5;
+}
+
+.ghost-node .node-number,
+.ghost-number {
+  background: rgba(231, 76, 60, 0.4) !important;
+  color: white !important;
 }
 </style>
