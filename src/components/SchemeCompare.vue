@@ -51,6 +51,32 @@ const elementDiffsB = computed(() => props.compareResult?.elementDiffsB || [])
 const stepDiffsA = computed(() => props.compareResult?.stepDiffsA || [])
 const stepDiffsB = computed(() => props.compareResult?.stepDiffsB || [])
 
+function deepCompareCommands(a: any, b: any): boolean {
+  if (!a && !b) return true
+  if (!a || !b) return false
+  if (a.commandText !== b.commandText) return false
+  if (a.executorRoleId !== b.executorRoleId) return false
+  if (a.beatType !== b.beatType) return false
+  if (a.beatValue !== b.beatValue) return false
+  if (a.beatCountdown !== b.beatCountdown) return false
+  if (a.notes !== b.notes) return false
+  const wa = a.waitConditions || []
+  const wb = b.waitConditions || []
+  if (wa.length !== wb.length) return false
+  for (let i = 0; i < wa.length; i++) {
+    if (wa[i].type !== wb[i].type) return false
+    if (wa[i].value !== wb[i].value) return false
+    if (wa[i].description !== wb[i].description) return false
+    const ra = wa[i].waitRoleIds || []
+    const rb = wb[i].waitRoleIds || []
+    if (ra.length !== rb.length || ra.some((x: string) => !rb.includes(x))) return false
+    const sa = wa[i].waitStepIds || []
+    const sb = wb[i].waitStepIds || []
+    if (sa.length !== sb.length || sa.some((x: string) => !sb.includes(x))) return false
+  }
+  return true
+}
+
 const summary = computed(() => {
   if (!props.compareResult) return null
   const addedA = props.compareResult.elementDiffsA.filter(d => d.diffType === 'added').length
@@ -64,12 +90,33 @@ const summary = computed(() => {
       const rb = rolesB.value[i]
       return !rb || r.name !== rb.name || r.color !== rb.color || r.description !== rb.description
     })
-  const cmdDiff = stepCommandsA.value.length !== stepCommandsB.value.length
+  
+  let cmdAdded = 0
+  let cmdRemoved = 0
+  let cmdChanged = 0
+  const allCmdIds = new Set([
+    ...stepCommandsA.value.map(c => c.id),
+    ...stepCommandsB.value.map(c => c.id),
+  ])
+  for (const id of allCmdIds) {
+    const cA = stepCommandsA.value.find(c => c.id === id)
+    const cB = stepCommandsB.value.find(c => c.id === id)
+    if (cA && cB) {
+      if (!deepCompareCommands(cA, cB)) cmdChanged++
+    } else if (cA && !cB) {
+      cmdRemoved++
+    } else {
+      cmdAdded++
+    }
+  }
+  const cmdDiff = (cmdAdded + cmdRemoved + cmdChanged) > 0
+  
   return {
     elements: { added: addedA, removed: removedA, moved: movedA },
     steps: { added: stepAddedA, removed: stepRemovedA, changed: stepChangedA },
     roleDiff,
     cmdDiff,
+    commands: { added: cmdAdded, removed: cmdRemoved, changed: cmdChanged, totalA: stepCommandsA.value.length, totalB: stepCommandsB.value.length },
   }
 })
 </script>
@@ -158,11 +205,17 @@ const summary = computed(() => {
       <div class="summary-item">
         <span class="summary-label">口令编排</span>
         <span class="summary-tags">
-          <span v-if="summary.cmdDiff" class="summary-tag moved">
-            方案A {{ stepCommandsA.length }}条 / 方案B {{ stepCommandsB.length }}条
+          <span v-if="summary.commands.added > 0" class="summary-tag added">
+            +{{ summary.commands.added }} 新增
           </span>
-          <span v-else class="summary-tag unchanged">
-            无差异（{{ stepCommandsA.length }}条）
+          <span v-if="summary.commands.removed > 0" class="summary-tag removed">
+            -{{ summary.commands.removed }} 移除
+          </span>
+          <span v-if="summary.commands.changed > 0" class="summary-tag moved">
+            ~{{ summary.commands.changed }} 变更
+          </span>
+          <span v-if="summary.cmdDiff === false" class="summary-tag unchanged">
+            无差异（{{ summary.commands.totalA }}条）
           </span>
         </span>
       </div>

@@ -508,6 +508,47 @@ export function useCeremony() {
     const templateB = getTemplateByScene(schemeB.scene)
     const stepsA = templateA?.steps || []
     const stepsB = templateB?.steps || []
+    const cmdsA = schemeA.stepCommands || []
+    const cmdsB = schemeB.stepCommands || []
+
+    function deepCmdEq(a: any, b: any): boolean {
+      if (!a && !b) return true
+      if (!a || !b) return false
+      if (a.commandText !== b.commandText) return false
+      if (a.executorRoleId !== b.executorRoleId) return false
+      if (a.beatType !== b.beatType) return false
+      if (a.beatValue !== b.beatValue) return false
+      if (a.beatCountdown !== b.beatCountdown) return false
+      if (a.notes !== b.notes) return false
+      const wa = a.waitConditions || []
+      const wb = b.waitConditions || []
+      if (wa.length !== wb.length) return false
+      for (let i = 0; i < wa.length; i++) {
+        if (wa[i].type !== wb[i].type) return false
+        if (wa[i].value !== wb[i].value) return false
+        if (wa[i].description !== wb[i].description) return false
+        const ra = wa[i].waitRoleIds || []
+        const rb = wb[i].waitRoleIds || []
+        if (ra.length !== rb.length || ra.some((x: string) => !rb.includes(x))) return false
+        const sa = wa[i].waitStepIds || []
+        const sb = wb[i].waitStepIds || []
+        if (sa.length !== sb.length || sa.some((x: string) => !sb.includes(x))) return false
+      }
+      return true
+    }
+
+    function stepCommandsChanged(stepId: string): boolean {
+      const ca = cmdsA.filter(c => c.stepId === stepId)
+      const cb = cmdsB.filter(c => c.stepId === stepId)
+      if (ca.length !== cb.length) return true
+      const allIds = new Set([...ca.map(c => c.id), ...cb.map(c => c.id)])
+      for (const id of allIds) {
+        const a = ca.find(c => c.id === id)
+        const b = cb.find(c => c.id === id)
+        if (!deepCmdEq(a, b)) return true
+      }
+      return false
+    }
 
     const elementDiffsA: ElementDiff[] = []
     const elementDiffsB: ElementDiff[] = []
@@ -592,6 +633,7 @@ export function useCeremony() {
         if (stepA.gesture !== stepB.gesture) changedFields.push('gesture')
         if (stepA.duration !== stepB.duration) changedFields.push('duration')
         if (stepA.order !== stepB.order) changedFields.push('order')
+        if (stepCommandsChanged(id)) changedFields.push('commands')
 
         const diffType: DiffType = changedFields.length > 0 ? 'moved' : 'unchanged'
 

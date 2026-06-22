@@ -46,6 +46,22 @@ const editingBeatValue = ref('')
 const editingBeatCountdown = ref<number | undefined>(undefined)
 const editingNotes = ref('')
 
+const editingWaitIndex = ref<{ cmdId: string; index: number } | null>(null)
+const newWaitCmdId = ref<string | null>(null)
+const newWaitType = ref<BeatType>('previous-finish')
+const newWaitValue = ref('')
+const newWaitCountdown = ref<number | undefined>(undefined)
+const newWaitRoleIds = ref<string[]>([])
+const newWaitStepIds = ref<string[]>([])
+const newWaitDescription = ref('')
+
+const editingWaitType = ref<BeatType>('instant')
+const editingWaitValue = ref('')
+const editingWaitCountdown = ref<number | undefined>(undefined)
+const editingWaitRoleIds = ref<string[]>([])
+const editingWaitStepIds = ref<string[]>([])
+const editingWaitDescription = ref('')
+
 const newCommandStepId = ref<string | null>(null)
 const newCommandText = ref('')
 const newCommandExecutor = ref('')
@@ -172,10 +188,98 @@ function handleDelete(cmd: StepCommand) {
 }
 
 function addWaitCondition(cmdId: string) {
-  emit('add-wait-condition', cmdId, {
-    type: 'previous-finish',
-    description: '',
-  })
+  newWaitCmdId.value = cmdId
+  newWaitType.value = 'previous-finish'
+  newWaitValue.value = ''
+  newWaitCountdown.value = undefined
+  newWaitRoleIds.value = []
+  newWaitStepIds.value = []
+  newWaitDescription.value = ''
+  editingWaitIndex.value = null
+}
+
+function cancelAddWait() {
+  newWaitCmdId.value = null
+  newWaitType.value = 'previous-finish'
+  newWaitValue.value = ''
+  newWaitCountdown.value = undefined
+  newWaitRoleIds.value = []
+  newWaitStepIds.value = []
+  newWaitDescription.value = ''
+}
+
+function confirmAddWait(cmdId: string) {
+  const condition: BeatCondition = {
+    type: newWaitType.value,
+    value: newWaitType.value === 'countdown'
+      ? (newWaitCountdown.value ? String(newWaitCountdown.value) : undefined)
+      : (newWaitValue.value.trim() || undefined),
+    waitRoleIds: newWaitRoleIds.value.length > 0 ? [...newWaitRoleIds.value] : undefined,
+    waitStepIds: newWaitStepIds.value.length > 0 ? [...newWaitStepIds.value] : undefined,
+    description: newWaitDescription.value.trim() || undefined,
+  }
+  emit('add-wait-condition', cmdId, condition)
+  cancelAddWait()
+}
+
+function startEditWait(cmdId: string, index: number, cond: BeatCondition) {
+  editingWaitIndex.value = { cmdId, index }
+  editingWaitType.value = cond.type
+  editingWaitValue.value = (cond.type === 'countdown') ? '' : (cond.value || '')
+  editingWaitCountdown.value = (cond.type === 'countdown' && cond.value) ? Number(cond.value) : undefined
+  editingWaitRoleIds.value = cond.waitRoleIds ? [...cond.waitRoleIds] : []
+  editingWaitStepIds.value = cond.waitStepIds ? [...cond.waitStepIds] : []
+  editingWaitDescription.value = cond.description || ''
+  cancelAddWait()
+}
+
+function cancelEditWait() {
+  editingWaitIndex.value = null
+  editingWaitType.value = 'instant'
+  editingWaitValue.value = ''
+  editingWaitCountdown.value = undefined
+  editingWaitRoleIds.value = []
+  editingWaitStepIds.value = []
+  editingWaitDescription.value = ''
+}
+
+function saveEditWait(cmdId: string, index: number) {
+  const updates: Partial<BeatCondition> = {
+    type: editingWaitType.value,
+    value: editingWaitType.value === 'countdown'
+      ? (editingWaitCountdown.value ? String(editingWaitCountdown.value) : undefined)
+      : (editingWaitValue.value.trim() || undefined),
+    waitRoleIds: editingWaitRoleIds.value.length > 0 ? [...editingWaitRoleIds.value] : undefined,
+    waitStepIds: editingWaitStepIds.value.length > 0 ? [...editingWaitStepIds.value] : undefined,
+    description: editingWaitDescription.value.trim() || undefined,
+  }
+  emit('update-wait-condition', cmdId, index, updates)
+  cancelEditWait()
+}
+
+function handleDeleteWait(cmdId: string, index: number) {
+  if (confirm('确定删除该等待条件？')) {
+    emit('delete-wait-condition', cmdId, index)
+    if (editingWaitIndex.value?.cmdId === cmdId && editingWaitIndex.value.index === index) {
+      cancelEditWait()
+    }
+  }
+}
+
+function toggleWaitRole(roleId: string, list: string[]) {
+  const i = list.indexOf(roleId)
+  if (i >= 0) list.splice(i, 1)
+  else list.push(roleId)
+}
+
+function toggleWaitStep(stepId: string, list: string[]) {
+  const i = list.indexOf(stepId)
+  if (i >= 0) list.splice(i, 1)
+  else list.push(stepId)
+}
+
+function getStepName(stepId: string): string {
+  return props.steps.find(s => s.id === stepId)?.title || stepId
 }
 
 function getWaitTypeOptions() {
@@ -304,14 +408,169 @@ function getWaitTypeOptions() {
                     <component :is="getBeatTypeInfo(cmd.beatType).icon" class="w-3 h-3" />
                     <span>{{ formatBeat(cmd) }}</span>
                   </div>
-                  <div v-if="cmd.waitConditions.length > 0" class="meta-item wait">
-                    <Clock class="w-3 h-3" />
-                    <span v-for="(wc, wi) in cmd.waitConditions" :key="wi" class="wait-chip">
-                      {{ formatWaitCondition(wc) }}
-                    </span>
-                  </div>
                   <div v-if="cmd.notes" class="meta-item notes">
                     <span>{{ cmd.notes }}</span>
+                  </div>
+                </div>
+
+                <div v-if="cmd.waitConditions.length > 0" class="wait-list">
+                  <div
+                    v-for="(wc, wi) in cmd.waitConditions"
+                    :key="wi"
+                    class="wait-item"
+                  >
+                    <template v-if="editingWaitIndex?.cmdId === cmd.id && editingWaitIndex?.index === wi">
+                      <div class="wait-edit">
+                        <div class="wait-edit-row">
+                          <label class="wait-edit-label">等待类型</label>
+                          <select v-model="editingWaitType" class="ce-select sm">
+                            <option v-for="b in beatTypeOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
+                          </select>
+                        </div>
+                        <div v-if="editingWaitType === 'countdown'" class="wait-edit-row">
+                          <label class="wait-edit-label">等待拍数</label>
+                          <input v-model.number="editingWaitCountdown" type="number" min="1" class="ce-input sm" />
+                        </div>
+                        <div v-if="editingWaitType === 'signal'" class="wait-edit-row">
+                          <label class="wait-edit-label">信号说明</label>
+                          <input v-model="editingWaitValue" type="text" class="ce-input" placeholder="如：鼓声三下" />
+                        </div>
+                        <div class="wait-edit-row multi">
+                          <div class="wait-edit-field">
+                            <label class="wait-edit-label">等待角色</label>
+                            <div class="chip-select">
+                              <span
+                                v-for="r in roles"
+                                :key="r.id"
+                                class="chip-option"
+                                :class="{ selected: editingWaitRoleIds.includes(r.id) }"
+                                :style="editingWaitRoleIds.includes(r.id) ? { borderColor: r.color, color: r.color, background: r.color + '15' } : {}"
+                                @click="toggleWaitRole(r.id, editingWaitRoleIds)"
+                              >{{ r.name }}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="wait-edit-row multi">
+                          <div class="wait-edit-field">
+                            <label class="wait-edit-label">等待步骤</label>
+                            <div class="chip-select">
+                              <span
+                                v-for="s in steps"
+                                :key="s.id"
+                                class="chip-option"
+                                :class="{ selected: editingWaitStepIds.includes(s.id) }"
+                                @click="toggleWaitStep(s.id, editingWaitStepIds)"
+                              >{{ s.order }}.{{ s.title }}</span>
+                            </div>
+                          </div>
+                        </div>
+                        <div class="wait-edit-row">
+                          <label class="wait-edit-label">等待说明</label>
+                          <input v-model="editingWaitDescription" type="text" class="ce-input" placeholder="如：奉茶完毕后" />
+                        </div>
+                        <div class="wait-edit-actions">
+                          <button class="ce-btn-sm primary" @click="saveEditWait(cmd.id, wi)">
+                            <Check class="w-3 h-3" /> 保存
+                          </button>
+                          <button class="ce-btn-sm" @click="cancelEditWait">
+                            <X class="w-3 h-3" /> 取消
+                          </button>
+                          <button class="ce-btn-sm danger" @click="handleDeleteWait(cmd.id, wi)">
+                            <Trash2 class="w-3 h-3" /> 删除
+                          </button>
+                        </div>
+                      </div>
+                    </template>
+                    <template v-else>
+                      <div class="wait-card" @click="startEditWait(cmd.id, wi, wc)">
+                        <div class="wait-card-header">
+                          <Clock class="w-3 h-3" />
+                          <span class="wait-card-type">{{ getBeatTypeInfo(wc.type).label }}</span>
+                          <span class="wait-card-desc">{{ formatWaitCondition(wc) }}</span>
+                        </div>
+                        <div v-if="wc.waitRoleIds && wc.waitRoleIds.length" class="wait-card-meta">
+                          <Users class="w-3 h-3" />
+                          <span v-for="rid in wc.waitRoleIds" :key="rid" class="wait-meta-chip"
+                                :style="{ borderColor: getRoleColor(rid), color: getRoleColor(rid) }">
+                            {{ getRoleName(rid) }}
+                          </span>
+                        </div>
+                        <div v-if="wc.waitStepIds && wc.waitStepIds.length" class="wait-card-meta">
+                          <Play class="w-3 h-3" />
+                          <span v-for="sid in wc.waitStepIds" :key="sid" class="wait-meta-chip step">
+                            {{ getStepName(sid) }}
+                          </span>
+                        </div>
+                        <button
+                          class="wait-delete-btn"
+                          title="删除等待条件"
+                          @click.stop="handleDeleteWait(cmd.id, wi)"
+                        >
+                          <Trash2 class="w-3 h-3" />
+                        </button>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+
+                <div v-if="newWaitCmdId === cmd.id" class="wait-edit add-wait">
+                  <div class="wait-edit-header">
+                    <span class="wait-edit-title">新增等待条件</span>
+                  </div>
+                  <div class="wait-edit-row">
+                    <label class="wait-edit-label">等待类型</label>
+                    <select v-model="newWaitType" class="ce-select sm">
+                      <option v-for="b in beatTypeOptions" :key="b.value" :value="b.value">{{ b.label }}</option>
+                    </select>
+                  </div>
+                  <div v-if="newWaitType === 'countdown'" class="wait-edit-row">
+                    <label class="wait-edit-label">等待拍数</label>
+                    <input v-model.number="newWaitCountdown" type="number" min="1" class="ce-input sm" />
+                  </div>
+                  <div v-if="newWaitType === 'signal'" class="wait-edit-row">
+                    <label class="wait-edit-label">信号说明</label>
+                    <input v-model="newWaitValue" type="text" class="ce-input" placeholder="如：鼓声三下" />
+                  </div>
+                  <div class="wait-edit-row multi">
+                    <div class="wait-edit-field">
+                      <label class="wait-edit-label">等待角色</label>
+                      <div class="chip-select">
+                        <span
+                          v-for="r in roles"
+                          :key="r.id"
+                          class="chip-option"
+                          :class="{ selected: newWaitRoleIds.includes(r.id) }"
+                          :style="newWaitRoleIds.includes(r.id) ? { borderColor: r.color, color: r.color, background: r.color + '15' } : {}"
+                          @click="toggleWaitRole(r.id, newWaitRoleIds)"
+                        >{{ r.name }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="wait-edit-row multi">
+                    <div class="wait-edit-field">
+                      <label class="wait-edit-label">等待步骤</label>
+                      <div class="chip-select">
+                        <span
+                          v-for="s in steps"
+                          :key="s.id"
+                          class="chip-option"
+                          :class="{ selected: newWaitStepIds.includes(s.id) }"
+                          @click="toggleWaitStep(s.id, newWaitStepIds)"
+                        >{{ s.order }}.{{ s.title }}</span>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="wait-edit-row">
+                    <label class="wait-edit-label">等待说明</label>
+                    <input v-model="newWaitDescription" type="text" class="ce-input" placeholder="如：奉茶完毕后" />
+                  </div>
+                  <div class="wait-edit-actions">
+                    <button class="ce-btn-sm primary" @click="confirmAddWait(cmd.id)">
+                      <Check class="w-3 h-3" /> 确认添加
+                    </button>
+                    <button class="ce-btn-sm" @click="cancelAddWait">
+                      <X class="w-3 h-3" /> 取消
+                    </button>
                   </div>
                 </div>
 
@@ -775,5 +1034,187 @@ function getWaitTypeOptions() {
 .add-command-btn:hover {
   background: rgba(139, 69, 19, 0.04);
   border-color: rgba(139, 69, 19, 0.4);
+}
+
+.wait-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin-bottom: 6px;
+}
+
+.wait-item {
+  width: 100%;
+}
+
+.wait-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 6px 28px 6px 8px;
+  background: rgba(212, 175, 55, 0.08);
+  border: 1px solid rgba(212, 175, 55, 0.2);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.wait-card:hover {
+  background: rgba(212, 175, 55, 0.15);
+  border-color: rgba(212, 175, 55, 0.4);
+}
+
+.wait-card-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  color: #8a6d1f;
+}
+
+.wait-card-type {
+  font-weight: 600;
+}
+
+.wait-card-desc {
+  color: #6b5610;
+}
+
+.wait-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+  font-size: 9px;
+  color: #888;
+}
+
+.wait-meta-chip {
+  padding: 1px 6px;
+  border-radius: 8px;
+  border: 1px solid;
+  font-size: 9px;
+  font-weight: 500;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.wait-meta-chip.step {
+  border-color: rgba(95, 158, 160, 0.5);
+  color: #5F9EA0;
+  background: rgba(95, 158, 160, 0.08);
+}
+
+.wait-delete-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: #999;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.wait-delete-btn:hover {
+  background: rgba(231, 76, 60, 0.1);
+  color: #e74c3c;
+}
+
+.wait-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  background: rgba(255, 236, 179, 0.2);
+  border: 1px solid rgba(212, 175, 55, 0.35);
+  border-radius: 6px;
+}
+
+.wait-edit.add-wait {
+  background: rgba(95, 158, 160, 0.06);
+  border-color: rgba(95, 158, 160, 0.3);
+  border-style: dashed;
+}
+
+.wait-edit-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #5c3317;
+  padding-bottom: 4px;
+  border-bottom: 1px dashed rgba(139, 69, 19, 0.1);
+}
+
+.wait-edit-title {
+  color: #8a6d1f;
+}
+
+.wait-edit.add-wait .wait-edit-title {
+  color: #5F9EA0;
+}
+
+.wait-edit-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wait-edit-row.multi {
+  flex-direction: column;
+}
+
+.wait-edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.wait-edit-label {
+  font-size: 10px;
+  color: #888;
+  padding-left: 2px;
+}
+
+.chip-select {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.chip-option {
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid rgba(139, 69, 19, 0.15);
+  background: #fff;
+  font-size: 10px;
+  color: #666;
+  cursor: pointer;
+  transition: all 0.2s;
+  user-select: none;
+}
+
+.chip-option:hover {
+  border-color: rgba(95, 158, 160, 0.4);
+}
+
+.chip-option.selected {
+  font-weight: 500;
+}
+
+.wait-edit-actions {
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  padding-top: 2px;
+  border-top: 1px dashed rgba(139, 69, 19, 0.08);
 }
 </style>
